@@ -58,10 +58,16 @@ def _check_day(day: int) -> None:
 
 
 async def _trigger_board_refresh() -> None:
-    """Re-render the board image right now instead of waiting for the timer."""
+    """Re-render the board image right now instead of waiting for the timer.
+
+    force=True is required here: process_plugin_output() is normally a
+    TTL-gated cache check for the periodic background refresh loop, and the
+    Haushalt plugin's TTL is 6 hours, so without forcing it this would almost
+    always no-op and keep serving the stale cached render.
+    """
     try:
         schedule = plugin_service.get_plugin_schedule("HaushaltPlugin")
-        await plugin_service.process_plugin_output(schedule)
+        await plugin_service.process_plugin_output(schedule, force=True)
     except Exception:
         # Rendering is best-effort here; the API response to the phone should
         # never fail just because the e-ink refresh hiccuped.

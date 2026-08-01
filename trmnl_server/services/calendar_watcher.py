@@ -56,7 +56,7 @@ async def _check_once() -> None:
         _last_fingerprint = fingerprint
         try:
             schedule = plugin_service.get_plugin_schedule("HaushaltPlugin")
-            await plugin_service.process_plugin_output(schedule)
+            await plugin_service.process_plugin_output(schedule, force=True)
         except Exception as exc:  # noqa: BLE001
             logger.warning("[CalendarWatcher] Failed to refresh board: %s", exc)
 

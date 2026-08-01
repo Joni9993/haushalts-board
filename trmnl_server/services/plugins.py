@@ -182,7 +182,7 @@ def _seconds_until_plugin_refresh(
     return default_interval
 
 
-async def process_plugin_output(schedule: PluginSchedule) -> None:
+async def process_plugin_output(schedule: PluginSchedule, *, force: bool = False) -> None:
     plugin_cls = schedule.plugin_cls
     plugin_name = plugin_cls.__name__
     fallback_assets = schedule.fallback_assets()
@@ -194,7 +194,7 @@ async def process_plugin_output(schedule: PluginSchedule) -> None:
     now = time()
 
     assets_valid = _assets_exist(cached_assets)
-    needs_refresh = (not assets_valid) or (expires_at <= now)
+    needs_refresh = force or (not assets_valid) or (expires_at <= now)
     assets = cached_assets if assets_valid else None
 
     if needs_refresh:
