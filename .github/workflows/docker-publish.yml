@@ -6,7 +6,7 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository_owner }}/haushalts-board
+  IMAGE_NAME: joni9993/haushalts-board
 
 jobs:
   build-and-push:
