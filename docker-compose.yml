@@ -1,8 +1,10 @@
 services:
   haushalts-board:
-    build: .
+    image: ghcr.io/joni9993/haushalts-board:latest
     container_name: haushalts-board
     restart: unless-stopped
+    labels:
+      - com.centurylinklabs.watchtower.enable=true
     ports:
       - "4567:4567"
     volumes:
