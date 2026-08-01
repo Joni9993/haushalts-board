@@ -16,7 +16,7 @@ good enough, not needed for a household board.
 from __future__ import annotations
 
 import asyncio
-from datetime import date, timedelta
+from datetime import date
 from typing import Optional
 
 from .. import config, google_calendar
@@ -30,9 +30,7 @@ _watcher_task: Optional[asyncio.Task] = None
 _last_fingerprint: Optional[str] = None
 
 
-def _monday_of_current_week() -> date:
-    today = date.today()
-    return today - timedelta(days=today.weekday())
+BOARD_WINDOW_DAYS = 3  # keep in sync with HaushaltPlugin's rolling window
 
 
 async def _check_once() -> None:
@@ -41,8 +39,7 @@ async def _check_once() -> None:
     if not google_calendar.is_configured():
         return
 
-    monday = _monday_of_current_week()
-    events = await google_calendar.get_week_events(monday)
+    events = await google_calendar.get_events(date.today(), BOARD_WINDOW_DAYS)
     fingerprint = google_calendar.events_fingerprint(events)
 
     if _last_fingerprint is None:

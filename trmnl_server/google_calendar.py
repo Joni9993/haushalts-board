@@ -68,13 +68,13 @@ def _calendar_ids() -> List[str]:
     return DEFAULT_CALENDAR_IDS
 
 
-async def get_week_events(monday: date) -> Dict[int, List[str]]:
-    """Return {weekday_index (0=Mo..6=So): ["09:00 Zahnarzt", ...]} for the
-    ISO week starting at `monday`. Empty dict if not configured or on error.
+async def get_events(start: date, days: int) -> Dict[int, List[str]]:
+    """Return {offset (0..days-1): ["09:00 Zahnarzt", ...]} for the `days`
+    calendar days starting at `start`. Empty dict if not configured or on error.
     """
     import asyncio
 
-    return await asyncio.to_thread(_get_week_events_sync, monday)
+    return await asyncio.to_thread(_get_events_sync, start, days)
 
 
 def events_fingerprint(events: Dict[int, List[str]]) -> str:
@@ -87,7 +87,7 @@ def events_fingerprint(events: Dict[int, List[str]]) -> str:
     return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
 
 
-def _get_week_events_sync(monday: date) -> Dict[int, List[str]]:
+def _get_events_sync(start: date, days: int) -> Dict[int, List[str]]:
     creds = _load_credentials()
     if not creds:
         return {}
@@ -100,9 +100,9 @@ def _get_week_events_sync(monday: date) -> Dict[int, List[str]]:
         )
         return {}
 
-    week_start = datetime.combine(monday, datetime.min.time(), tzinfo=timezone.utc)
-    week_end = week_start + timedelta(days=7)
-    result: Dict[int, List[str]] = {i: [] for i in range(7)}
+    range_start = datetime.combine(start, datetime.min.time(), tzinfo=timezone.utc)
+    range_end = range_start + timedelta(days=days)
+    result: Dict[int, List[str]] = {i: [] for i in range(days)}
 
     try:
         service = build("calendar", "v3", credentials=creds, cache_discovery=False)
@@ -111,8 +111,8 @@ def _get_week_events_sync(monday: date) -> Dict[int, List[str]]:
                 service.events()
                 .list(
                     calendarId=cal_id,
-                    timeMin=week_start.isoformat(),
-                    timeMax=week_end.isoformat(),
+                    timeMin=range_start.isoformat(),
+                    timeMax=range_end.isoformat(),
                     singleEvents=True,
                     orderBy="startTime",
                     maxResults=100,
@@ -121,26 +121,26 @@ def _get_week_events_sync(monday: date) -> Dict[int, List[str]]:
                 .get("items", [])
             )
             for event in events:
-                start = event.get("start", {})
-                start_raw = start.get("dateTime") or start.get("date")
+                event_start = event.get("start", {})
+                start_raw = event_start.get("dateTime") or event_start.get("date")
                 if not start_raw:
                     continue
                 try:
                     if "T" in start_raw:
                         dt = datetime.fromisoformat(start_raw.replace("Z", "+00:00"))
-                        day_idx = (dt.date() - monday).days
+                        day_idx = (dt.date() - start).days
                         time_label = dt.strftime("%H:%M")
                     else:
                         event_date = date.fromisoformat(start_raw)
-                        day_idx = (event_date - monday).days
+                        day_idx = (event_date - start).days
                         time_label = "ganztägig"
                 except ValueError:
                     continue
-                if 0 <= day_idx <= 6:
+                if 0 <= day_idx < days:
                     title = event.get("summary", "(ohne Titel)")
                     result[day_idx].append(f"{time_label} {title}")
     except Exception as exc:  # noqa: BLE001
         logger.warning("Failed to fetch Google Calendar events: %s", exc)
-        return {i: [] for i in range(7)}
+        return {i: [] for i in range(days)}
 
     return result

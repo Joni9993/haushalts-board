@@ -106,14 +106,23 @@ def _ensure_week(data: Dict[str, Any], key: str) -> None:
     }
 
 
-async def get_current_week() -> Dict[str, Any]:
-    """Return this week's board, creating it (with recurring tasks) if needed."""
+async def get_week_for_date(d: date) -> Dict[str, Any]:
+    """Return the board for the ISO week containing `d`, creating it if needed.
+
+    Used by the board renderer's rolling 3-day view, which can reach into next
+    week's bucket (e.g. today=Saturday, day 3 of the view falls on next Monday).
+    """
     async with _LOCK:
         data = _load_raw()
-        key = _week_key()
+        key = _week_key(d)
         _ensure_week(data, key)
         _save_raw(data)
         return _week_payload(data, key)
+
+
+async def get_current_week() -> Dict[str, Any]:
+    """Return this week's board, creating it (with recurring tasks) if needed."""
+    return await get_week_for_date(date.today())
 
 
 async def add_task(column: str, text: str, day: int | None = None) -> Dict[str, Any]:
