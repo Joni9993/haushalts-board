@@ -1,0 +1,15 @@
+services:
+  haushalts-board:
+    build: .
+    container_name: haushalts-board
+    restart: unless-stopped
+    ports:
+      - "4567:4567"
+    volumes:
+      - haushalt-data:/app/var
+    environment:
+      - TZ=Europe/Berlin
+      # - LOG_LEVEL=INFO
+
+volumes:
+  haushalt-data:

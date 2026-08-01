@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Unsere Woche zuhause</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=Caveat:wght@600;700&family=Nunito+Sans:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --cream:#faf3e6; --paper:#fffbf3; --sage:#7c8a6b; --sage-dark:#5b6849;
+    --rose:#c98a8a; --rose-dark:#a8615f; --butter:#e3c876; --ink:#4a3f33;
+    --muted:#8c7f6c; --line:#e8d9bd;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    background:
+      radial-gradient(circle at 8% 0%, rgba(227,200,118,0.22), transparent 42%),
+      radial-gradient(circle at 92% 10%, rgba(124,138,107,0.16), transparent 40%),
+      radial-gradient(circle at 50% 100%, rgba(201,138,138,0.12), transparent 45%),
+      var(--cream);
+    color:var(--ink); font-family:"Nunito Sans", -apple-system, sans-serif;
+    padding:26px 16px 60px;
+  }
+  h1{ font-family:"Cormorant Garamond",serif; font-weight:700; font-size:1.9rem; margin:0 0 2px; color:var(--sage-dark); text-align:center; }
+  .sub{ font-family:"Caveat",cursive; color:var(--rose-dark); font-size:1.25rem; margin-bottom:18px; text-align:center; }
+  .week-bar{
+    background:var(--paper); border-radius:16px 6px 16px 6px; padding:12px 18px; margin-bottom:18px;
+    border:2px dashed var(--line); text-align:center; font-family:"Cormorant Garamond",serif;
+    font-size:1.2rem; font-weight:700; color:var(--sage-dark);
+  }
+
+  /* Weekly planner */
+  .planner{
+    background:var(--paper); border-radius:18px 8px 18px 8px; padding:16px; margin-bottom:20px;
+    border:1px solid var(--line); box-shadow:0 3px 12px rgba(90,70,40,0.06);
+  }
+  .planner h2{ font-family:"Cormorant Garamond",serif; margin:0 0 4px; font-size:1.3rem; }
+  .planner .hint{ font-size:0.75rem; color:var(--muted); margin-bottom:12px; font-style:italic; }
+  .plan-grid{
+    display:grid; grid-template-columns: repeat(7, 1fr); gap:6px;
+  }
+  .plan-day{
+    background:rgba(124,138,107,0.06); border-radius:12px; padding:6px;
+    min-height:110px; display:flex; flex-direction:column; gap:6px;
+  }
+  .plan-day.dragover{ background:rgba(227,200,118,0.28); }
+  .plan-day-label{ font-size:0.72rem; color:var(--muted); text-align:center; font-weight:700; }
+  .plan-block{
+    background:var(--butter); color:#4a3f33; border-radius:8px; padding:6px 6px;
+    font-size:0.72rem; font-weight:600; text-align:center; cursor:grab;
+    word-break:break-word; touch-action:none; user-select:none;
+  }
+  .plan-block.dragging{ opacity:0.4; }
+  .drag-ghost{
+    position:fixed; z-index:1000; pointer-events:none;
+    background:var(--butter); color:#4a3f33; border-radius:8px; padding:6px 10px;
+    font-size:0.72rem; font-weight:600; box-shadow:0 4px 14px rgba(0,0,0,0.25);
+    transform:translate(-50%,-50%);
+  }
+  .plan-add-row{ display:flex; gap:8px; margin-top:10px; }
+  .plan-add-row input{
+    flex:1; background:var(--cream); border:1.5px solid var(--line); border-radius:12px;
+    padding:8px 12px; font-size:0.85rem;
+  }
+  .plan-add-row select{
+    border:1.5px solid var(--line); border-radius:12px; padding:8px; font-size:0.85rem; background:var(--cream);
+  }
+  .plan-add-row button{ border:none; border-radius:12px; padding:8px 14px; background:var(--sage-dark); color:#fff; font-weight:700; }
+
+  .col{
+    background:var(--paper); border-radius:18px 8px 18px 8px; padding:16px; margin-bottom:14px;
+    border:1px solid var(--line); box-shadow:0 3px 12px rgba(90,70,40,0.06);
+  }
+  .col.jonathan{ border-top:4px solid var(--sage); }
+  .col.katarina{ border-top:4px solid var(--rose); }
+  .col.kids{ border-top:4px solid var(--butter); }
+  .col h2{ font-family:"Cormorant Garamond",serif; margin:0 0 10px; font-size:1.3rem; }
+  ul{ list-style:none; padding:0; margin:0 0 12px; }
+  li{
+    display:flex; align-items:center; gap:8px; font-size:0.9rem; margin-bottom:6px;
+    padding:8px 10px; border-radius:12px; background:rgba(124,138,107,0.06);
+  }
+  .col.katarina li{ background:rgba(201,138,138,0.08); }
+  .col.kids li{ background:rgba(227,200,118,0.14); }
+  li.done{ opacity:0.55; }
+  li.done .txt{ text-decoration:line-through; }
+  .emoji{ font-size:1.25rem; cursor:pointer; }
+  .txt{ flex:1; cursor:pointer; }
+  .star{ background:none; border:none; cursor:pointer; opacity:0.3; font-size:0.95rem; }
+  .star.active{ opacity:1; }
+  .del{ background:none; border:none; color:var(--muted); cursor:pointer; opacity:0.5; }
+  .add-row{ display:flex; gap:8px; }
+  .add-row select{
+    border:1.5px solid var(--line); border-radius:12px; padding:8px; font-size:0.78rem; background:var(--cream);
+  }
+  .day-badge{
+    border:1px solid var(--line); border-radius:8px; font-size:0.7rem; padding:2px 4px;
+    background:var(--cream); color:var(--muted);
+  }
+  .add-row input{
+    flex:1; background:var(--cream); border:1.5px solid var(--line); border-radius:12px;
+    padding:9px 12px; font-size:0.88rem;
+  }
+  .add-row button{ border:none; border-radius:12px; padding:9px 16px; color:#fff; font-weight:700; }
+  .jonathan .add-row button{ background:var(--sage); }
+  .katarina .add-row button{ background:var(--rose); }
+  .kids .add-row button{ background:var(--butter); color:#4a3f33; }
+  .status{ font-size:0.75rem; color:var(--muted); text-align:center; margin-top:16px; font-style:italic; }
+</style>
+</head>
+<body>
+<h1>Unsere Woche zuhause</h1>
+<div class="sub">Jede*r trägt ein, was ansteht ✿</div>
+<div class="week-bar" id="week-label">–</div>
+
+<div class="planner">
+  <h2>Wochenplan · feste Blöcke</h2>
+  <div class="hint">Ziehen, um auf einen anderen Tag zu verschieben – bleibt so, bis ihr's wieder verschiebt.</div>
+  <div class="plan-grid" id="plan-grid"></div>
+  <div class="plan-add-row">
+    <input id="block-input" placeholder="Neuer Block (z.B. Sport)…">
+    <select id="block-day">
+      <option value="0">Mo</option><option value="1">Di</option><option value="2">Mi</option>
+      <option value="3">Do</option><option value="4">Fr</option><option value="5">Sa</option><option value="6">So</option>
+    </select>
+    <button onclick="addBlock()">+</button>
+  </div>
+</div>
+
+<div class="col jonathan">
+  <h2>🐣 Jonathan</h2>
+  <ul id="list-jonathan"></ul>
+  <div class="add-row"><input id="input-jonathan" placeholder="Neue Aufgabe…"><select id="day-jonathan"><option value="">Diese Woche</option><option value="0">Mo</option><option value="1">Di</option><option value="2">Mi</option><option value="3">Do</option><option value="4">Fr</option><option value="5">Sa</option><option value="6">So</option></select><button onclick="addTask('jonathan')">+</button></div>
+</div>
+
+<div class="col katarina">
+  <h2>🌷 Katarina</h2>
+  <ul id="list-katarina"></ul>
+  <div class="add-row"><input id="input-katarina" placeholder="Neue Aufgabe…"><select id="day-katarina"><option value="">Diese Woche</option><option value="0">Mo</option><option value="1">Di</option><option value="2">Mi</option><option value="3">Do</option><option value="4">Fr</option><option value="5">Sa</option><option value="6">So</option></select><button onclick="addTask('katarina')">+</button></div>
+</div>
+
+<div class="col kids">
+  <h2>🌱 Kinder</h2>
+  <ul id="list-kids"></ul>
+  <div class="add-row"><input id="input-kids" placeholder="Neue Aufgabe für die Kinder…"><select id="day-kids"><option value="">Diese Woche</option><option value="0">Mo</option><option value="1">Di</option><option value="2">Mi</option><option value="3">Do</option><option value="4">Fr</option><option value="5">Sa</option><option value="6">So</option></select><button onclick="addTask('kids')">+</button></div>
+</div>
+
+<div class="status" id="status">Lädt…</div>
+
+<script>
+const EMOJI = { jonathan: ["🐣","🐉"], katarina: ["🌷","🌹"], kids: ["🌱","🌸"] };
+const DAY_NAMES = ["Mo","Di","Mi","Do","Fr","Sa","So"];
+
+function dayOptionsHtml(selected) {
+  let html = `<option value="" ${selected === null ? "selected" : ""}>–</option>`;
+  DAY_NAMES.forEach((name, idx) => {
+    html += `<option value="${idx}" ${selected === idx ? "selected" : ""}>${name}</option>`;
+  });
+  return html;
+}
+let recurringSet = { jonathan: new Set(), katarina: new Set() };
+
+async function api(path, options) {
+  const res = await fetch(`/api/haushalt${path}`, {
+    headers: {'Content-Type': 'application/json'},
+    ...options,
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+function updateRecurringSet(recurring) {
+  recurringSet.jonathan = new Set(recurring?.jonathan || []);
+  recurringSet.katarina = new Set(recurring?.katarina || []);
+}
+
+async function loadAll() {
+  if (dragBlockId) return;
+  try {
+    const [week, blockData] = await Promise.all([
+      api('/state'),
+      api('/blocks'),
+    ]);
+    document.getElementById('status').textContent = 'Aktuell';
+    render(week);
+    renderPlanner(blockData.blocks || []);
+  } catch (e) {
+    document.getElementById('status').textContent = 'Konnte Board nicht laden – Server erreichbar?';
+  }
+}
+
+function render(week) {
+  document.getElementById('week-label').textContent = week.label;
+  updateRecurringSet(week.recurring);
+  ['jonathan','katarina','kids'].forEach(col => renderColumn(col, week[col] || []));
+}
+
+function renderColumn(col, tasks) {
+  const ul = document.getElementById(`list-${col}`);
+  ul.innerHTML = '';
+  const emojis = EMOJI[col];
+  tasks.forEach((t, idx) => {
+    const li = document.createElement('li');
+    li.className = t.done ? 'done' : '';
+    const emoji = t.done ? emojis[1] : emojis[0];
+    const starHtml = col !== 'kids'
+      ? `<button class="star ${recurringSet[col]?.has(t.text) ? 'active' : ''}" title="wiederkehrend">★</button>`
+      : '';
+    const day = (t.day === undefined) ? null : t.day;
+    li.innerHTML = `<span class="emoji">${emoji}</span><span class="txt">${t.text}</span>${starHtml}<select class="day-badge">${dayOptionsHtml(day)}</select><button class="del">✕</button>`;
+    li.querySelector('.emoji').onclick = () => toggle(col, idx);
+    li.querySelector('.txt').onclick = () => toggle(col, idx);
+    li.querySelector('.del').onclick = () => del(col, idx);
+    li.querySelector('.day-badge').onchange = (e) => setTaskDay(col, idx, e.target.value);
+    const starBtn = li.querySelector('.star');
+    if (starBtn) starBtn.onclick = () => toggleRecurring(col, idx);
+    ul.appendChild(li);
+  });
+}
+
+async function addTask(col) {
+  const input = document.getElementById(`input-${col}`);
+  const daySelect = document.getElementById(`day-${col}`);
+  const text = input.value.trim();
+  if (!text) return;
+  const dayValue = daySelect.value === '' ? null : parseInt(daySelect.value, 10);
+  const week = await api(`/${col}/tasks`, { method: 'POST', body: JSON.stringify({ text, day: dayValue }) });
+  input.value = '';
+  daySelect.value = '';
+  render(week);
+}
+
+async function setTaskDay(col, idx, value) {
+  const dayValue = value === '' ? null : parseInt(value, 10);
+  const week = await api(`/${col}/tasks/${idx}/day`, { method: 'POST', body: JSON.stringify({ day: dayValue }) });
+  render(week);
+}
+
+async function toggle(col, idx) {
+  const week = await api(`/${col}/tasks/${idx}/toggle`, { method: 'POST' });
+  render(week);
+}
+
+async function del(col, idx) {
+  const week = await api(`/${col}/tasks/${idx}`, { method: 'DELETE' });
+  render(week);
+}
+
+async function toggleRecurring(person, idx) {
+  const week = await api(`/${person}/tasks/${idx}/recurring`, { method: 'POST' });
+  render(week);
+}
+
+// --- Weekly planner (drag & drop blocks, pointer-events based so it works on touch) ---
+
+let ghostEl = null;
+let dragBlockId = null;
+let currentHoverDay = null;
+
+function renderPlanner(blocks) {
+  const grid = document.getElementById('plan-grid');
+  grid.innerHTML = '';
+  for (let day = 0; day < 7; day++) {
+    const col = document.createElement('div');
+    col.className = 'plan-day';
+    col.dataset.day = day;
+
+    const label = document.createElement('div');
+    label.className = 'plan-day-label';
+    label.textContent = DAY_NAMES[day];
+    col.appendChild(label);
+
+    blocks.filter(b => b.day === day).forEach(b => {
+      col.appendChild(buildBlockEl(b));
+    });
+
+    grid.appendChild(col);
+  }
+}
+
+function buildBlockEl(block) {
+  const el = document.createElement('div');
+  el.className = 'plan-block';
+  el.textContent = block.label;
+  el.dataset.blockId = block.id;
+
+  el.addEventListener('pointerdown', e => startDrag(e, block, el));
+  el.addEventListener('dblclick', async () => {
+    if (confirm(`"${block.label}" löschen?`)) {
+      const data = await api(`/blocks/${block.id}`, { method: 'DELETE' });
+      renderPlanner(data.blocks);
+    }
+  });
+  return el;
+}
+
+function startDrag(e, block, sourceEl) {
+  e.preventDefault();
+  dragBlockId = block.id;
+  sourceEl.classList.add('dragging');
+
+  ghostEl = document.createElement('div');
+  ghostEl.className = 'drag-ghost';
+  ghostEl.textContent = block.label;
+  document.body.appendChild(ghostEl);
+  moveGhost(e.clientX, e.clientY);
+
+  const onMove = (ev) => {
+    moveGhost(ev.clientX, ev.clientY);
+    highlightDropTarget(ev.clientX, ev.clientY);
+  };
+  const onUp = async (ev) => {
+    document.removeEventListener('pointermove', onMove);
+    document.removeEventListener('pointerup', onUp);
+    sourceEl.classList.remove('dragging');
+    clearHighlight();
+    if (ghostEl) { ghostEl.remove(); ghostEl = null; }
+
+    const dayCol = elementFromPointDayCol(ev.clientX, ev.clientY);
+    if (dayCol && dragBlockId) {
+      const day = parseInt(dayCol.dataset.day, 10);
+      const data = await api(`/blocks/${dragBlockId}/move`, {
+        method: 'POST', body: JSON.stringify({ day }),
+      });
+      renderPlanner(data.blocks);
+    }
+    dragBlockId = null;
+  };
+
+  document.addEventListener('pointermove', onMove);
+  document.addEventListener('pointerup', onUp);
+}
+
+function moveGhost(x, y) {
+  if (ghostEl) { ghostEl.style.left = `${x}px`; ghostEl.style.top = `${y}px`; }
+}
+
+function elementFromPointDayCol(x, y) {
+  if (ghostEl) ghostEl.style.display = 'none';
+  const el = document.elementFromPoint(x, y);
+  if (ghostEl) ghostEl.style.display = '';
+  return el ? el.closest('.plan-day') : null;
+}
+
+function highlightDropTarget(x, y) {
+  const col = elementFromPointDayCol(x, y);
+  if (col === currentHoverDay) return;
+  clearHighlight();
+  if (col) { col.classList.add('dragover'); currentHoverDay = col; }
+}
+
+function clearHighlight() {
+  if (currentHoverDay) { currentHoverDay.classList.remove('dragover'); currentHoverDay = null; }
+}
+
+async function addBlock() {
+  const input = document.getElementById('block-input');
+  const daySelect = document.getElementById('block-day');
+  const label = input.value.trim();
+  if (!label) return;
+  const data = await api('/blocks', {
+    method: 'POST',
+    body: JSON.stringify({ label, day: parseInt(daySelect.value, 10) }),
+  });
+  input.value = '';
+  renderPlanner(data.blocks);
+}
+
+['jonathan','katarina','kids'].forEach(col => {
+  document.getElementById(`input-${col}`).addEventListener('keydown', e => {
+    if (e.key === 'Enter') addTask(col);
+  });
+});
+document.getElementById('block-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter') addBlock();
+});
+
+loadAll();
+setInterval(loadAll, 30000);
+</script>
+</body>
+</html>
