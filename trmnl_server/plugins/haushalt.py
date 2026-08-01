@@ -14,6 +14,11 @@ hierarchy instead of gray fills — mid-gray fills a) read as flat/dated at
 this resolution and b) nearly vanish once quantized down for the actual
 1-bit e-ink panel. "Done" and "not today" are conveyed via fill/strikethrough
 and bar-vs-plain-text, never via a gray tone.
+
+Text is word-wrapped rather than truncated with an ellipsis: every row is
+measured first (wrapped line count -> pixel height) and only drawn if it
+still fits before GRID_BOTTOM/FOOTER_BOTTOM, so a long task simply takes
+more vertical space instead of losing content.
 """
 
 from __future__ import annotations
@@ -22,7 +27,7 @@ import asyncio
 import logging
 import os
 from datetime import date, timedelta
-from typing import Optional
+from typing import List, Optional
 
 from PIL import Image, ImageDraw, ImageFont
 
@@ -45,6 +50,7 @@ FOOTER_TOP = FOOTER_RULE_Y + 14
 FOOTER_BOTTOM = 468
 
 RULE_THICK = 3
+LINE_GAP = 5  # extra vertical space between wrapped lines within one row
 
 INK = 0
 
@@ -210,71 +216,65 @@ class HaushaltPlugin(PluginBase):
         inner_x = x0 + 6
         inner_w = col_width - 12
         y = BODY_TOP
+        bottom_limit = GRID_BOTTOM - 10
 
         for block_label in block_labels:
-            h = self._draw_block_bar(draw, inner_x, inner_w, y, block_label, block_font)
+            h = self._draw_block_bar(draw, inner_x, inner_w, y, block_label, block_font, bottom_limit)
+            if h is None:
+                break
             y += h + 8
 
-        row_h = BADGE_SIZE + 10
-        bottom_limit = GRID_BOTTOM - 10
-        max_rows = max(0, int((bottom_limit - y) / row_h))
         shown = 0
-
         for column, task in tasks:
-            if shown >= max_rows:
+            row_h = self._draw_task_row(draw, inner_x, y, inner_w, column, task, item_font, badge_font, bottom_limit)
+            if row_h is None:
                 break
-            self._draw_task_row(draw, inner_x, y, inner_w, column, task, item_font, badge_font)
-            y += row_h
+            y += row_h + 8
             shown += 1
 
         for event_text in events:
-            if shown >= max_rows:
+            row_h = self._draw_event_row(draw, inner_x, y, inner_w, event_text, item_font, bottom_limit)
+            if row_h is None:
                 break
-            self._draw_event_row(draw, inner_x, y, inner_w, event_text, item_font)
-            y += row_h
+            y += row_h + 8
             shown += 1
 
         remaining = len(tasks) + len(events) - shown
         if remaining > 0 and y + item_font.size <= bottom_limit:
             draw.text((inner_x, y), f"+{remaining} mehr", fill=INK, font=item_font)
 
-    @staticmethod
-    def _draw_block_bar(draw, x0, width, y, label, block_font) -> int:
-        h = block_font.size + 16
+    def _draw_block_bar(self, draw, x0, width, y, label, block_font, bottom_limit) -> Optional[int]:
+        pad = 10
+        lines = self._wrap(label, block_font, width - 2 * pad)
+        h = self._text_block_height(lines, block_font) + 12
+        if y + h > bottom_limit:
+            return None
         draw.rectangle([x0, y, x0 + width, y + h], fill=INK)
-        text = HaushaltPlugin._truncate(label, block_font, width - 20)
-        draw.text((x0 + 10, y + h / 2), text, font=block_font, fill=255, anchor="lm")
+        self._draw_lines(draw, x0 + pad, y + 6, lines, block_font, fill=255)
         return h
 
-    def _draw_task_row(self, draw, x, y, max_width, column, task, item_font, badge_font) -> None:
+    def _draw_task_row(self, draw, x, y, max_width, column, task, item_font, badge_font, bottom_limit) -> Optional[int]:
         done = bool(task.get("done"))
-        self._draw_badge(draw, x, y, column, done, badge_font)
         text_x = x + BADGE_SIZE + BADGE_GAP
-        text = self._truncate(task["text"], item_font, max_width - BADGE_SIZE - BADGE_GAP)
-        row_mid = y + BADGE_SIZE / 2
-        draw.text((text_x, row_mid), text, font=item_font, fill=INK, anchor="lm")
-        if done:
-            self._strike_through(draw, text_x, row_mid, text, item_font)
+        lines = self._wrap(task["text"], item_font, max_width - BADGE_SIZE - BADGE_GAP)
+        row_h = max(BADGE_SIZE, self._text_block_height(lines, item_font))
+        if y + row_h > bottom_limit:
+            return None
+        self._draw_badge(draw, x, y, column, done, badge_font)
+        self._draw_lines(draw, text_x, y, lines, item_font, strike=done)
+        return row_h
 
-    @staticmethod
-    def _draw_event_row(draw, x, y, max_width, text, item_font) -> None:
+    def _draw_event_row(self, draw, x, y, max_width, text, item_font, bottom_limit) -> Optional[int]:
         r = 6
-        cy = y + BADGE_SIZE / 2
-        cx = x + r
-        draw.polygon([(cx, cy - r), (cx + r, cy), (cx, cy + r), (cx - r, cy)], outline=INK, width=2)
         text_x = x + 2 * r + 8
-        truncated = HaushaltPlugin._truncate(text, item_font, max_width - 2 * r - 8)
-        draw.text((text_x, cy), truncated, font=item_font, fill=INK, anchor="lm")
-
-    @staticmethod
-    def _strike_through(draw, x, row_mid, text, font) -> None:
-        """Solid strikethrough for done tasks — unlike a gray fill, this survives
-        1-bit e-ink rendering (no dithering) without vanishing."""
-        if not text:
-            return
-        width = font.getlength(text)
-        line_y = row_mid + font.size * 0.05
-        draw.line([(x, line_y), (x + width, line_y)], fill=INK, width=2)
+        lines = self._wrap(text, item_font, max_width - 2 * r - 8)
+        row_h = max(BADGE_SIZE, self._text_block_height(lines, item_font))
+        if y + row_h > bottom_limit:
+            return None
+        cx, cy = x + r, y + BADGE_SIZE / 2
+        draw.polygon([(cx, cy - r), (cx + r, cy), (cx, cy + r), (cx - r, cy)], outline=INK, width=2)
+        self._draw_lines(draw, text_x, y, lines, item_font)
+        return row_h
 
     @staticmethod
     def _draw_badge(draw, x, y, column, done, font) -> None:
@@ -306,42 +306,76 @@ class HaushaltPlugin(PluginBase):
             return
 
         right_limit = CANVAS_SIZE[0] - MARGIN
-        row_h = max(BADGE_SIZE, item_font.size) + 10
-        max_y = FOOTER_BOTTOM - row_h
+        full_width = right_limit - x
+        item_gap = 20
 
         cx, cy = x, y
+        line_height_used = 0
         shown = 0
         for column, task in unassigned:
-            text = task["text"]
             done = bool(task.get("done"))
-            bbox = draw.textbbox((0, 0), text, font=item_font)
-            item_w = BADGE_SIZE + BADGE_GAP + (bbox[2] - bbox[0])
+            lines = self._wrap(task["text"], item_font, full_width - BADGE_SIZE - BADGE_GAP)
+            item_h = max(BADGE_SIZE, self._text_block_height(lines, item_font))
+            text_w = max((item_font.getlength(line) for line in lines), default=0)
+            item_w = BADGE_SIZE + BADGE_GAP + text_w
+            multiline = len(lines) > 1
 
-            if cx != x and cx + item_w > right_limit:
+            if cx != x and (multiline or cx + item_w > right_limit):
                 cx = x
-                cy += row_h
-            if cy > max_y:
+                cy += line_height_used + 10
+                line_height_used = 0
+
+            if cy + item_h > FOOTER_BOTTOM:
                 break
 
             self._draw_badge(draw, cx, cy, column, done, badge_font)
-            text_x = cx + BADGE_SIZE + BADGE_GAP
-            row_mid = cy + BADGE_SIZE / 2
-            draw.text((text_x, row_mid), text, font=item_font, fill=INK, anchor="lm")
-            if done:
-                self._strike_through(draw, text_x, row_mid, text, item_font)
-            cx += item_w + 20
+            self._draw_lines(draw, cx + BADGE_SIZE + BADGE_GAP, cy, lines, item_font, strike=done)
+            line_height_used = max(line_height_used, item_h)
             shown += 1
+
+            if multiline:
+                cx = x
+                cy += item_h + 10
+                line_height_used = 0
+            else:
+                cx += item_w + item_gap
 
         remaining = len(unassigned) - shown
         if remaining > 0:
-            draw.text((cx, cy + BADGE_SIZE / 2), f"+{remaining} mehr", font=item_font, fill=INK, anchor="lm")
+            draw.text((cx, cy), f"+{remaining} mehr", font=item_font, fill=INK)
 
-    # -- helpers -------------------------------------------------------------
+    # -- text wrapping helpers -------------------------------------------------
 
     @staticmethod
-    def _truncate(text: str, font, max_width: float) -> str:
-        if font.getlength(text) <= max_width:
-            return text
-        while text and font.getlength(text + "…") > max_width:
-            text = text[:-1]
-        return text + "…" if text else ""
+    def _wrap(text: str, font, max_width: float) -> List[str]:
+        words = text.split()
+        if not words:
+            return [""]
+        lines: List[str] = []
+        current: List[str] = []
+        for word in words:
+            candidate = " ".join(current + [word])
+            if font.getlength(candidate) <= max_width or not current:
+                current.append(word)
+            else:
+                lines.append(" ".join(current))
+                current = [word]
+        if current:
+            lines.append(" ".join(current))
+        return lines
+
+    @staticmethod
+    def _text_block_height(lines: List[str], font) -> int:
+        return (font.size + LINE_GAP) * len(lines)
+
+    @staticmethod
+    def _draw_lines(draw, x, y, lines: List[str], font, fill: int = INK, strike: bool = False) -> None:
+        line_h = font.size + LINE_GAP
+        ty = y
+        for line in lines:
+            draw.text((x, ty), line, font=font, fill=fill)
+            if strike:
+                width = font.getlength(line)
+                sy = ty + font.size * 0.55
+                draw.line([(x, sy), (x + width, sy)], fill=fill, width=2)
+            ty += line_h
