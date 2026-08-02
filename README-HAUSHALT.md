@@ -110,7 +110,7 @@ nach "Diese Woche" / "Nächste Woche", sodass ihr sonntags die kommende Woche
 durchplanen könnt. Die ersten drei Tage sind mit **Board** markiert – das ist
 genau das, was am Kühlschrank hängt.
 
-### Google Kalender einmalig verbinden
+### Google Kalender verbinden (auch mehrere Konten, z.B. pro Familienmitglied)
 
 Das läuft komplett lesend (read-only) und bricht nie das Board, falls es
 nicht eingerichtet ist. Einrichtung — **einmalig, mit Browser, also am
@@ -120,19 +120,41 @@ PC/Laptop, nicht im Docker-Container**:
 2. "Google Calendar API" aktivieren
 3. "OAuth-Client-ID" erstellen, Anwendungstyp **Desktop-App**
 4. JSON herunterladen, speichern als `var/google_credentials.json`
-5. `pip install google-auth-oauthlib google-api-python-client`
-6. `python scripts/setup_google_calendar.py` ausführen → Browser öffnet sich,
-   einmal einloggen und Lesezugriff erlauben
-7. Das erzeugt `var/google_token.json`
-8. Diese Datei ins Docker-Volume kopieren (z.B.
+5. Auf dem OAuth-Consent-Screen unter "Test users" **jedes** Familienmitglied
+   hinzufügen, dessen Kalender ihr einbinden wollt — sonst schlägt deren Login
+   mit "access_denied" fehl (die App bleibt unverifiziert/"Testing")
+6. `pip install google-auth-oauthlib google-api-python-client`
+7. `python scripts/setup_google_calendar.py` ausführen → Browser öffnet sich,
+   einmal einloggen (mit dem **ersten** Konto) und Lesezugriff erlauben
+8. Das erzeugt `var/google_token.json`
+9. Diese Datei ins Docker-Volume kopieren (z.B.
    `docker cp var/google_token.json haushalts-board:/app/var/`) und den
    Container einmal neu starten
 
 Danach holt sich das Board bei jedem Refresh automatisch die Termine der
-laufenden Woche vom Hauptkalender (`primary`). Wollt ihr einen zweiten
-gemeinsamen Kalender mit einbeziehen, könnt ihr die Kalender-IDs
-kommagetrennt über die Umgebungsvariable `CALENDAR_IDS` im
-`docker-compose.yml` setzen (Standard: nur `primary`).
+laufenden Woche vom Hauptkalender (`primary`) dieses Kontos. Wollt ihr einen
+zweiten gemeinsamen Kalender **desselben** Kontos einbeziehen (z.B. weil er
+euch beiden freigegeben wurde), könnt ihr die Kalender-IDs kommagetrennt über
+die Umgebungsvariable `CALENDAR_IDS` im `docker-compose.yml` setzen (Standard:
+nur `primary`).
+
+**Ein zweites, unabhängiges Google-Konto** (z.B. eine zweite Person mit
+eigenem privaten Kalender, ohne dass etwas geteilt werden muss) braucht keinen
+zweiten OAuth-Client — dieselbe `google_credentials.json` reicht, jede Person
+loggt sich einfach mit ihrem eigenen Google-Konto ein:
+
+```bash
+python scripts/setup_google_calendar.py katarina
+```
+
+Das erzeugt `var/google_token_katarina.json` statt der Standarddatei — **wichtig:
+ohne Namen als Argument überschreibt jeder erneute Lauf die zuletzt benutzte
+Token-Datei** (das Skript fragt inzwischen nach, falls die Zieldatei schon
+existiert). Auch diese Datei ins Volume kopieren und neu starten — der Server
+findet automatisch jede `var/google_token*.json` und mischt deren Termine
+zusammen; es ist keine weitere Konfiguration nötig. Ein Konto, das
+vorübergehend nicht erreichbar ist (abgelaufener Token o.ä.), lässt die Termine
+der anderen Konten unberührt.
 
 ## Bedienung auf dem Handy
 
