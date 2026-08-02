@@ -15,7 +15,13 @@ ones, solid black rules instead of thin gray hairlines, and weight/size for
 hierarchy instead of gray fills — mid-gray fills a) read as flat/dated at
 this resolution and b) nearly vanish once quantized down for the actual
 1-bit e-ink panel. "Done" is conveyed via a filled badge plus strikethrough,
-never via a gray tone. Tasks flagged `highlight` render as a solid bar.
+never via a gray tone.
+
+Rows alternate between plain (white background) and inverted (solid black
+bar, white ink) purely by position within the day — not by any per-task
+flag. This isn't decorative banding for its own sake: it's what makes each
+row's boundaries unambiguous on a 1-bit panel, where there's no light gray
+gridline to lean on.
 
 Text is word-wrapped rather than truncated with an ellipsis: every row is
 measured first (wrapped line count -> pixel height) and only drawn if it
@@ -53,6 +59,7 @@ FOOTER_BOTTOM = 468
 
 RULE_THICK = 3
 LINE_GAP = 5  # extra vertical space between wrapped lines within one row
+ROW_PAD = 4   # top/bottom padding inside every row's box, inverted or not
 
 INK = 0
 
@@ -127,7 +134,6 @@ class HaushaltPlugin(PluginBase):
                 "time": task.get("time"),
                 "person": task.get("person", "alle"),
                 "done": task.get("done", False),
-                "highlight": task.get("highlight", False),
                 "order": task.get("order", 0),
             })
         for event in events:
@@ -155,9 +161,7 @@ class HaushaltPlugin(PluginBase):
 
         header_label_font = self._font(22, "bold")
         header_date_font = self._font(13, "regular")
-        bar_font = self._font(15, "bold")
         item_font = self._font(15, "regular")
-        time_font = self._font(15, "bold")
         badge_font = self._font(11, "bold")
         footer_header_font = self._font(18, "bold")
         footer_item_font = self._font(15, "regular")
@@ -168,7 +172,7 @@ class HaushaltPlugin(PluginBase):
             x0 = MARGIN + i * col_width
             self._draw_day_column(
                 draw, x0, col_width, i, d, rows_by_date.get(d, []),
-                header_label_font, header_date_font, bar_font, item_font, time_font, badge_font,
+                header_label_font, header_date_font, item_font, badge_font,
             )
 
         draw.line([(MARGIN, RULE_Y), (CANVAS_SIZE[0] - MARGIN, RULE_Y)], fill=INK, width=RULE_THICK)
@@ -184,7 +188,7 @@ class HaushaltPlugin(PluginBase):
 
     def _draw_day_column(
         self, draw, x0, col_width, i, d, rows,
-        header_label_font, header_date_font, bar_font, item_font, time_font, badge_font,
+        header_label_font, header_date_font, item_font, badge_font,
     ) -> None:
         is_today = i == 0
         label = DAY_LABELS[i]
@@ -208,13 +212,12 @@ class HaushaltPlugin(PluginBase):
         bottom_limit = GRID_BOTTOM - 10
         shown = 0
 
-        for row in rows:
-            if row["kind"] == "task" and row["highlight"]:
-                height = self._draw_highlight_bar(draw, inner_x, inner_w, y, row, bar_font, bottom_limit)
-            elif row["kind"] == "task":
-                height = self._draw_task_row(draw, inner_x, y, inner_w, row, item_font, time_font, badge_font, bottom_limit)
+        for idx, row in enumerate(rows):
+            inverted = idx % 2 == 1
+            if row["kind"] == "task":
+                height = self._draw_task_row(draw, inner_x, y, inner_w, row, item_font, badge_font, bottom_limit, inverted)
             else:
-                height = self._draw_event_row(draw, inner_x, y, inner_w, row, item_font, time_font, bottom_limit)
+                height = self._draw_event_row(draw, inner_x, y, inner_w, row, item_font, bottom_limit, inverted)
             if height is None:
                 break
             y += height + 8
@@ -224,54 +227,55 @@ class HaushaltPlugin(PluginBase):
         if remaining > 0 and y + item_font.size <= bottom_limit:
             draw.text((inner_x, y), f"+{remaining} mehr", fill=INK, font=item_font)
 
-    def _draw_highlight_bar(self, draw, x0, width, y, row, bar_font, bottom_limit) -> Optional[int]:
-        pad = 10
-        label = self._with_time(row)
-        lines = self._wrap(label, bar_font, width - 2 * pad)
-        h = self._text_block_height(lines, bar_font) + 12
-        if y + h > bottom_limit:
-            return None
-        draw.rectangle([x0, y, x0 + width, y + h], fill=INK)
-        self._draw_lines(draw, x0 + pad, y + 6, lines, bar_font, fill=255, strike=row["done"])
-        return h
-
-    def _draw_task_row(self, draw, x, y, max_width, row, item_font, time_font, badge_font, bottom_limit) -> Optional[int]:
+    def _draw_task_row(self, draw, x, y, max_width, row, item_font, badge_font, bottom_limit, inverted) -> Optional[int]:
         text_x = x + BADGE_SIZE + BADGE_GAP
         avail = max_width - BADGE_SIZE - BADGE_GAP
         lines = self._wrap(self._with_time(row), item_font, avail)
-        row_h = max(BADGE_SIZE, self._text_block_height(lines, item_font))
-        if y + row_h > bottom_limit:
+        content_h = max(BADGE_SIZE, self._text_block_height(lines, item_font))
+        box_h = content_h + 2 * ROW_PAD
+        if y + box_h > bottom_limit:
             return None
-        self._draw_badge(draw, x, y, row["person"], row["done"], badge_font)
-        self._draw_lines(draw, text_x, y, lines, item_font, strike=row["done"])
-        return row_h
+        if inverted:
+            draw.rectangle([x, y, x + max_width, y + box_h], fill=INK)
+        content_y = y + ROW_PAD
+        ink = 255 if inverted else INK
+        self._draw_badge(draw, x, content_y, row["person"], row["done"], badge_font, inverted)
+        self._draw_lines(draw, text_x, content_y, lines, item_font, fill=ink, strike=row["done"])
+        return box_h
 
-    def _draw_event_row(self, draw, x, y, max_width, row, item_font, time_font, bottom_limit) -> Optional[int]:
+    def _draw_event_row(self, draw, x, y, max_width, row, item_font, bottom_limit, inverted) -> Optional[int]:
         r = 6
         text_x = x + 2 * r + 8
         lines = self._wrap(self._with_time(row), item_font, max_width - 2 * r - 8)
-        row_h = max(BADGE_SIZE, self._text_block_height(lines, item_font))
-        if y + row_h > bottom_limit:
+        content_h = max(BADGE_SIZE, self._text_block_height(lines, item_font))
+        box_h = content_h + 2 * ROW_PAD
+        if y + box_h > bottom_limit:
             return None
-        cx, cy = x + r, y + BADGE_SIZE / 2
-        draw.polygon([(cx, cy - r), (cx + r, cy), (cx, cy + r), (cx - r, cy)], outline=INK, width=2)
-        self._draw_lines(draw, text_x, y, lines, item_font)
-        return row_h
+        if inverted:
+            draw.rectangle([x, y, x + max_width, y + box_h], fill=INK)
+        content_y = y + ROW_PAD
+        ink = 255 if inverted else INK
+        cx, cy = x + r, content_y + BADGE_SIZE / 2
+        draw.polygon([(cx, cy - r), (cx + r, cy), (cx, cy + r), (cx - r, cy)], outline=ink, width=2)
+        self._draw_lines(draw, text_x, content_y, lines, item_font, fill=ink)
+        return box_h
 
     @staticmethod
     def _with_time(row: dict) -> str:
         return f"{row['time']} {row['text']}" if row.get("time") else row["text"]
 
     @staticmethod
-    def _draw_badge(draw, x, y, person, done, font) -> None:
+    def _draw_badge(draw, x, y, person, done, font, inverted: bool = False) -> None:
         letter = BADGE_LETTER.get(person, "?")
         box = [x, y, x + BADGE_SIZE, y + BADGE_SIZE]
+        ink = 255 if inverted else INK
+        paper = INK if inverted else 255
         if done:
-            draw.rectangle(box, fill=INK)
-            text_fill = 255
+            draw.rectangle(box, fill=ink)
+            text_fill = paper
         else:
-            draw.rectangle(box, outline=INK, width=2)
-            text_fill = INK
+            draw.rectangle(box, outline=ink, width=2)
+            text_fill = ink
         draw.text((x + BADGE_SIZE / 2, y + BADGE_SIZE / 2), letter, font=font, fill=text_fill, anchor="mm")
 
     # -- undated-tasks footer ------------------------------------------

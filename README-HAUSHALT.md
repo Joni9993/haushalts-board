@@ -10,8 +10,8 @@ was für unser Vorhaben speziell dazugekommen ist.
 
 - `trmnl_server/haushalt_store.py` – JSON-Datei-Speicher (`var/haushalt_state.json`)
   für alle Aufgaben. Eine flache Aufgabenliste mit **echtem Datum**, optionaler
-  **Uhrzeit**, Besitzer (Jonathan / Katarina / Kinder / Alle), `hervorheben`-Flag
-  und wöchentlichen Wiederholungs-Vorlagen.
+  **Uhrzeit**, Besitzer (Jonathan / Katarina / Kinder / Alle) und wöchentlichen
+  Wiederholungs-Vorlagen.
 - `trmnl_server/plugins/haushalt.py` – Plugin, das das Board als 800×480-Bild
   rendert: rollierende 3-Tage-Ansicht (Heute / Morgen / Übermorgen) plus eine
   Leiste "Diese Woche" für Aufgaben ohne festen Tag.
@@ -27,13 +27,18 @@ was für unser Vorhaben speziell dazugekommen ist.
 ## Datenmodell (Schema v2)
 
 Eine Aufgabe hat: Text, Besitzer, optionales **Datum**, optionale **Uhrzeit**,
-`erledigt`, `hervorheben` und eine Sortierposition.
+`erledigt` und eine Sortierposition. Die früheren "festen Blöcke" (Sport,
+Hobby-Tag) gibt es als eigenes Konzept nicht mehr – es sind ganz normale
+Aufgaben (Besitzer "Alle", falls niemand Bestimmtes zuständig ist).
 
 - **Kein Datum** = "diese Woche, kein fester Tag" – landet in der Fußleiste des
   Boards und verfällt am Ende der Woche.
-- **Hervorheben** ersetzt die früheren "festen Blöcke": die Aufgabe wird auf dem
-  Board als schwarzer Balken gezeichnet, gehört aber – anders als ein Block –
-  einer Person und kann eine Uhrzeit haben.
+- **Schwarzer Balken auf dem Board** ist kein Merkmal einer einzelnen Aufgabe
+  mehr, sondern reine Positions-Optik: Einträge wechseln pro Tagesspalte einfach
+  von oben nach unten zwischen normal und invertiert (schwarzer Balken, weiße
+  Schrift) durch – unabhängig davon, ob es sich um eine Aufgabe oder einen
+  Kalendertermin handelt. Das sorgt für klare Zeilengrenzen auf dem
+  1-Bit-e-ink-Panel, ohne dass jemand das manuell einstellen müsste.
 - **Wöchentliche Wiederholung** ist eine Vorlage, die an einem Wochentag hängt.
   Konkrete Vorkommen werden 21 Tage im Voraus erzeugt, damit jedes Vorkommen
   einen eigenen Erledigt-Status hat und einzeln geändert oder gelöscht werden
@@ -138,7 +143,6 @@ Bottom-Sheet:
 - **Wann?** Schnell-Chips für Heute, Morgen und die nächsten Wochentage, dazu
   "Ohne festen Tag" und ein Kalender-Datepicker für alles weiter Entfernte
 - **Uhrzeit** optional – setzt den Eintrag chronologisch aufs Board
-- **Hervorheben** – schwarzer Balken auf dem Board
 - **Jede Woche wiederholen** – braucht einen festen Tag, wiederholt sich dann an
   dessen Wochentag
 

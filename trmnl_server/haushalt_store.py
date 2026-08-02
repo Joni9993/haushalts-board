@@ -13,9 +13,11 @@ Schema v2 (migrated automatically from v1 on first load):
   vanished from the board entirely.
 - Tasks can carry a ``time`` ("HH:MM"), so the board can sort them
   chronologically together with Google Calendar events.
-- The separate "blocks" concept (Sport, Hobby-Tag) is gone. A task can be
-  flagged ``highlight`` instead — it renders as a solid bar on the board and,
-  unlike a block, belongs to a person and can have a time.
+- The separate "blocks" concept (Sport, Hobby-Tag) is gone — they're just
+  regular tasks now (owner "alle" if nobody in particular). The board's
+  black-bar look is no longer an opt-in flag; it alternates automatically
+  by row position (see plugins/haushalt.py), so it's purely a rendering
+  choice with nothing to store here.
 - Repeating tasks live as ``templates`` anchored to a weekday. Concrete
   instances are materialized forward into a rolling horizon, so each
   occurrence has its own done-state and can be edited or deleted
@@ -91,7 +93,6 @@ def _empty_state() -> Dict[str, Any]:
                 "date": None,
                 "time": None,
                 "done": False,
-                "highlight": False,
                 "order": idx,
                 "week": week_key(),
                 "template_id": None,
@@ -168,7 +169,6 @@ def _migrate_v1(old: Dict[str, Any]) -> Dict[str, Any]:
                 "date": task_date,
                 "time": None,
                 "done": bool(entry.get("done")),
-                "highlight": False,
                 "order": order,
                 "week": None if task_date else current_key,
                 "template_id": None,
@@ -176,7 +176,7 @@ def _migrate_v1(old: Dict[str, Any]) -> Dict[str, Any]:
             order += 1
 
     # v1 blocks (Sport, Hobby-Tag) were weekday-pinned and person-less; they
-    # become highlighted weekly templates owned by the whole household.
+    # become plain weekly templates owned by the whole household.
     templates: List[Dict[str, Any]] = []
     for block in old.get("blocks") or []:
         weekday = block.get("day")
@@ -188,7 +188,6 @@ def _migrate_v1(old: Dict[str, Any]) -> Dict[str, Any]:
             "person": "alle",
             "weekday": weekday,
             "time": None,
-            "highlight": True,
             "materialized_until": None,
         })
 
@@ -234,7 +233,6 @@ def _materialize(data: Dict[str, Any], today: Optional[date] = None) -> bool:
                     "date": cursor.isoformat(),
                     "time": template.get("time"),
                     "done": False,
-                    "highlight": bool(template.get("highlight")),
                     "order": 0,
                     "week": None,
                     "template_id": template["id"],
@@ -297,7 +295,6 @@ def _public(task: Dict[str, Any]) -> Dict[str, Any]:
         "date": task.get("date"),
         "time": task.get("time"),
         "done": bool(task.get("done")),
-        "highlight": bool(task.get("highlight")),
         "order": task.get("order", 0),
         "repeating": bool(task.get("template_id")),
         "template_id": task.get("template_id"),
@@ -330,7 +327,6 @@ def _state_payload(data: Dict[str, Any]) -> Dict[str, Any]:
                 "person": t.get("person", "alle"),
                 "weekday": t.get("weekday"),
                 "time": t.get("time"),
-                "highlight": bool(t.get("highlight")),
             }
             for t in data.get("templates", [])
         ],
@@ -383,7 +379,6 @@ async def add_task(
     person: str,
     task_date: Optional[str] = None,
     time_value: Optional[str] = None,
-    highlight: bool = False,
     repeat_weekly: bool = False,
 ) -> Dict[str, Any]:
     async with _LOCK:
@@ -398,7 +393,6 @@ async def add_task(
                 "person": person,
                 "weekday": weekday,
                 "time": time_value,
-                "highlight": highlight,
                 # Anchor just before the first occurrence so _materialize picks
                 # it up from this date onward instead of duplicating it here.
                 "materialized_until": (date.fromisoformat(task_date) - timedelta(days=1)).isoformat(),
@@ -413,7 +407,6 @@ async def add_task(
                 "date": task_date,
                 "time": time_value,
                 "done": False,
-                "highlight": highlight,
                 "order": _next_order(data, task_date),
                 "week": None if task_date else week_key(),
                 "template_id": None,
@@ -445,8 +438,6 @@ async def update_task(task_id: str, **fields: Any) -> Dict[str, Any]:
                 task["person"] = fields["person"]
             if "time" in fields:
                 task["time"] = fields["time"]
-            if "highlight" in fields and fields["highlight"] is not None:
-                task["highlight"] = bool(fields["highlight"])
             if "date" in fields:
                 new_date = fields["date"]
                 if new_date != task.get("date"):

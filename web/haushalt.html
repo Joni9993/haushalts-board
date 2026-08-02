@@ -141,14 +141,6 @@
   .tag.time{ background:var(--ink); color:#fff; }
   .tag.repeat, .tag.star{ background:transparent; border:1px solid var(--line); }
 
-  .item.highlight{ background:var(--ink); }
-  .item.highlight .item-text{ color:#fff; font-weight:700; }
-  .item.highlight.done .item-text{ color:rgba(255,255,255,0.6); }
-  .item.highlight .tag{ background:rgba(255,255,255,0.18); color:#fff; }
-  .item.highlight .tag.time{ background:#fff; color:var(--ink); }
-  .item.highlight .check{ border-color:#fff; }
-  .item.highlight .check.on{ background:#fff; color:var(--ink); }
-  .item.highlight .grip{ color:rgba(255,255,255,0.7); }
 
   .grip{
     flex:0 0 auto; width:30px; align-self:stretch; min-height:28px;
@@ -304,10 +296,6 @@
   </div>
 
   <div class="field">
-    <button class="toggle" id="f-highlight" aria-pressed="false" type="button">
-      <span>Hervorheben<span class="hint">Erscheint als schwarzer Balken auf dem Board</span></span>
-      <span class="switch"></span>
-    </button>
     <button class="toggle" id="f-repeat" aria-pressed="false" type="button">
       <span>Jede Woche wiederholen<span class="hint" id="f-repeat-hint">Braucht einen festen Tag</span></span>
       <span class="switch"></span>
@@ -529,7 +517,6 @@ function itemRow(task){
   const row = document.createElement("div");
   row.className = `item ${task.person}`;
   if (task.done) row.classList.add("done");
-  if (task.highlight) row.classList.add("highlight");
   row.dataset.id = task.id;
 
   const check = document.createElement("button");
@@ -614,7 +601,6 @@ function openSheet(task){
     person: task.person || "jonathan",
     date: task.date !== undefined ? task.date : null,
     time: task.time || null,
-    highlight: !!task.highlight,
     repeat: !!task.repeating,
     repeating: !!task.repeating,
     template_id: task.template_id || null,
@@ -703,9 +689,6 @@ function renderWhen(){
 }
 
 function syncToggles(){
-  const hl = document.getElementById("f-highlight");
-  hl.setAttribute("aria-pressed", String(draft.highlight));
-
   const rep = document.getElementById("f-repeat");
   const canRepeat = !!draft.date;
   if (!canRepeat) draft.repeat = false;
@@ -716,7 +699,6 @@ function syncToggles(){
     : "Braucht einen festen Tag";
 }
 
-document.getElementById("f-highlight").onclick = () => { draft.highlight = !draft.highlight; syncToggles(); };
 document.getElementById("f-repeat").onclick = () => {
   if (!draft.date) return;
   draft.repeat = !draft.repeat;
@@ -739,7 +721,6 @@ document.getElementById("f-save").onclick = async () => {
     person: draft.person,
     date: draft.date,
     time: draft.time,
-    highlight: draft.highlight,
   };
   if (draft.id){
     await mutate(api(`/tasks/${draft.id}`, {

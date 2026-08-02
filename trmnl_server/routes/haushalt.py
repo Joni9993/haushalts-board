@@ -1,5 +1,5 @@
 """API for the Haushalts-Board: tasks with real dates, optional times,
-highlighting, and weekly repeat rules.
+and weekly repeat rules.
 
 Kept separate from the TRMNL device-protocol routes in api.py. This is what
 the mobile page (web/haushalt.html) talks to; the e-ink display itself only
@@ -32,7 +32,6 @@ class NewTask(BaseModel):
     person: str
     date: str | None = None          # ISO "YYYY-MM-DD", None = kein fester Tag
     time: str | None = None          # "HH:MM"
-    highlight: bool = False
     repeat_weekly: bool = False
 
 
@@ -41,7 +40,6 @@ class PatchTask(BaseModel):
     person: str | None = None
     date: str | None = None
     time: str | None = None
-    highlight: bool | None = None
     # Explicit clear flags, since None already means "leave unchanged" above.
     clear_date: bool = False
     clear_time: bool = False
@@ -116,7 +114,6 @@ async def add_task(payload: NewTask):
         person=payload.person,
         task_date=payload.date,
         time_value=payload.time,
-        highlight=payload.highlight,
         repeat_weekly=payload.repeat_weekly,
     )
     await _trigger_board_refresh()
@@ -138,8 +135,6 @@ async def patch_task(task_id: str, payload: PatchTask):
         fields["text"] = text
     if payload.person is not None:
         fields["person"] = payload.person
-    if payload.highlight is not None:
-        fields["highlight"] = payload.highlight
     if payload.clear_date:
         fields["date"] = None
     elif payload.date is not None:
