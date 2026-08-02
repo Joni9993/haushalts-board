@@ -9,20 +9,58 @@ was für unser Vorhaben speziell dazugekommen ist.
 ## Was wurde hinzugefügt
 
 - `trmnl_server/haushalt_store.py` – JSON-Datei-Speicher (`var/haushalt_state.json`)
-  für die Aufgaben von Jonathan, Katarina und den Kindern, wochenweise (KW-Schlüssel),
-  inkl. "wiederkehrend"-Markierung, plus die festen Wochen-Blöcke (Sport,
-  Hobby-Tag, ...).
+  für alle Aufgaben. Eine flache Aufgabenliste mit **echtem Datum**, optionaler
+  **Uhrzeit**, Besitzer (Jonathan / Katarina / Kinder / Alle), `hervorheben`-Flag
+  und wöchentlichen Wiederholungs-Vorlagen.
 - `trmnl_server/plugins/haushalt.py` – Plugin, das das Board als 800×480-Bild
-  rendert (Wochen-Blöcke-Leiste oben, zwei Spalten Jonathan/Katarina, Kinder-Leiste
-  unten).
+  rendert: rollierende 3-Tage-Ansicht (Heute / Morgen / Übermorgen) plus eine
+  Leiste "Diese Woche" für Aufgaben ohne festen Tag.
 - `trmnl_server/routes/haushalt.py` – JSON-API unter `/api/haushalt/...` zum
-  Eintragen, Abhaken, Löschen und Wiederkehrend-Markieren von Aufgaben, sowie
-  Erstellen/Verschieben/Umbenennen/Löschen der Wochen-Blöcke.
-- `web/haushalt.html` – Handy-taugliche Seite mit Wochenplaner (Drag & Drop,
-  funktioniert per Touch – nicht über natives HTML5-Drag&Drop, das auf
-  Smartphones nicht greift, sondern über Pointer-Events) und den drei
-  Aufgaben-Spalten.
+  Anlegen, Bearbeiten, Abhaken, Umsortieren und Löschen von Aufgaben.
+- `web/haushalt.html` – Handy-taugliche Tagesagenda: Aufgaben nach Tag gruppiert,
+  Eingabe über ein Bottom-Sheet mit Schnell-Chips (Heute / Morgen / Wochentage)
+  und Kalender-Datepicker für alles Weitere. Drag & Drop läuft über
+  Pointer-Events, nicht über natives HTML5-Drag&Drop – letzteres greift auf
+  Smartphones nicht.
 - `Dockerfile`, `docker-compose.yml` – Deployment-Setup.
+
+## Datenmodell (Schema v2)
+
+Eine Aufgabe hat: Text, Besitzer, optionales **Datum**, optionale **Uhrzeit**,
+`erledigt`, `hervorheben` und eine Sortierposition.
+
+- **Kein Datum** = "diese Woche, kein fester Tag" – landet in der Fußleiste des
+  Boards und verfällt am Ende der Woche.
+- **Hervorheben** ersetzt die früheren "festen Blöcke": die Aufgabe wird auf dem
+  Board als schwarzer Balken gezeichnet, gehört aber – anders als ein Block –
+  einer Person und kann eine Uhrzeit haben.
+- **Wöchentliche Wiederholung** ist eine Vorlage, die an einem Wochentag hängt.
+  Konkrete Vorkommen werden 21 Tage im Voraus erzeugt, damit jedes Vorkommen
+  einen eigenen Erledigt-Status hat und einzeln geändert oder gelöscht werden
+  kann, ohne die Reihe zu beeinflussen.
+
+### Warum v2: der Wochentag-Bug
+
+v1 speicherte statt eines Datums einen **Wochentag-Index 0–6 relativ zum
+Wochen-Bucket**. Die Oberfläche zeigte nur "Mo/Di/Mi…" ohne Wochenbezug, was
+regelmäßig das falsche echte Datum ergab: An einem Sonntag bedeutete "Mo"
+*letzten* Montag (6 Tage rückwärts), und sobald die angezeigten 3 Tage über die
+ISO-Wochengrenze reichten, lag die Aufgabe in einem anderen Bucket – sie
+verschwand komplett vom Board (weder in einer Tagesspalte noch in "Diese Woche").
+
+Beim ersten Start migriert der Store automatisch nach v2. Die alte Datei wird
+vorher als `var/haushalt_state.v1-backup.json` gesichert. Alte Blöcke werden zu
+hervorgehobenen Wochen-Wiederholungen mit Besitzer "Alle"; v1-Aufgaben, deren
+Wochentag in der Vergangenheit lag, werden zu Aufgaben ohne festen Tag statt auf
+einem bereits vergangenen Datum wieder aufzutauchen.
+
+## Sortierung auf dem Board
+
+Pro Tag werden Haushaltsaufgaben und Google-Kalender-Termine in **eine** Liste
+gemischt und wie in einer Kalender-App geordnet: erst alles ohne Uhrzeit (in der
+per Drag & Drop gesetzten Reihenfolge), danach alles mit Uhrzeit chronologisch.
+Deshalb haben auf der Handy-Seite auch nur Einträge ohne Uhrzeit einen Anfasser
+zum Verschieben – Einträge mit Uhrzeit ordnen sich selbst ein.
 
 ## Event-getriebenes Update statt festem Timer
 
@@ -53,17 +91,19 @@ nicht einen bis zu 10 Minuten alten. Wenn ihr fast in Echtzeit sehen wollt, hilf
 nur ein kürzeres Poll-Intervall am Gerät – dafür würde sich Dauerstrom übers
 USB-Kabel statt Akkubetrieb anbieten, da entfällt die Akku-Sorge komplett.
 
-## Wochenansicht + Google Kalender
+## 3-Tage-Ansicht + Google Kalender
 
-Das Board zeigt jetzt eine echte Wochenübersicht (Mo–So) statt nur zweier
-Spalten: pro Tag der feste Block (falls vorhanden), die für diesen Tag
-eingeplanten Aufgaben (mit Kürzel wer: J/K für Jonathan/Katarina), und –
-falls Google Kalender verbunden ist – die Termine des Tages. Aufgaben ohne
-festen Tag laufen weiter in einer Sammel-Leiste unter dem Wochenraster.
+Das Board zeigt Heute / Morgen / Übermorgen und schiebt sich jede Nacht einen
+Tag weiter. Drei breite Spalten lesen sich auf dem kleinen 800×480-Panel deutlich
+besser als sieben gequetschte. Pro Tag stehen dort die eingeplanten Aufgaben
+(mit Kürzel wer: J/K/k/A) und – falls Google Kalender verbunden ist – die Termine
+des Tages, gemeinsam nach Uhrzeit sortiert. Aufgaben ohne festen Tag laufen in
+der Leiste "Diese Woche" darunter.
 
-Auf der Handy-Seite bekommt jede Aufgabe jetzt ein Tag-Dropdown (beim
-Eintragen und nachträglich änderbar), damit ihr wählen könnt: "diese Woche"
-(kein fester Tag) oder ein bestimmter Wochentag.
+Die Handy-Seite plant weiter voraus als das Board: sie zeigt 14 Tage, gruppiert
+nach "Diese Woche" / "Nächste Woche", sodass ihr sonntags die kommende Woche
+durchplanen könnt. Die ersten drei Tage sind mit **Board** markiert – das ist
+genau das, was am Kühlschrank hängt.
 
 ### Google Kalender einmalig verbinden
 
@@ -89,13 +129,23 @@ gemeinsamen Kalender mit einbeziehen, könnt ihr die Kalender-IDs
 kommagetrennt über die Umgebungsvariable `CALENDAR_IDS` im
 `docker-compose.yml` setzen (Standard: nur `primary`).
 
-## Wochenplaner (feste Blöcke)
+## Bedienung auf dem Handy
 
-Unter "Wochenplan" auf der Handy-Seite könnt ihr benannte Blöcke (Sport,
-Hobby-Tag, Studium, ...) erstellen und per Ziehen auf einen anderen Wochentag
-verschieben. Die Blöcke sind nicht an eine bestimmte KW gebunden – sie bleiben,
-wie sie zuletzt einsortiert wurden, bis ihr sie wieder verschiebt. Doppeltippen
-auf einen Block löscht ihn (mit Rückfrage).
+Der große Knopf unten rechts (oder das **+** an einem Tag) öffnet ein
+Bottom-Sheet:
+
+- **Wer?** Jonathan / Katarina / Kinder / Alle
+- **Wann?** Schnell-Chips für Heute, Morgen und die nächsten Wochentage, dazu
+  "Ohne festen Tag" und ein Kalender-Datepicker für alles weiter Entfernte
+- **Uhrzeit** optional – setzt den Eintrag chronologisch aufs Board
+- **Hervorheben** – schwarzer Balken auf dem Board
+- **Jede Woche wiederholen** – braucht einen festen Tag, wiederholt sich dann an
+  dessen Wochentag
+
+Tippen auf eine Aufgabe öffnet dasselbe Sheet zum Bearbeiten (inkl. Löschen und
+"Wiederholung beenden"). Die Checkbox hakt ab, der Anfasser rechts sortiert per
+Ziehen um (funktioniert per Touch). Über die Filterleiste oben lässt sich auf
+eine einzelne Person einschränken.
 
 ## Deployment (auf deiner Docker-VM, 192.168.50.61)
 
@@ -124,12 +174,14 @@ euch außerdem den aktuellen Geräte-Status und Logs, falls etwas nicht ankommt)
 
 ## Wie die Aufgaben funktionieren
 
-- **Neue Woche:** Jeden Montag (ISO-Kalenderwoche) entsteht automatisch eine neue
-  Aufgabenliste – mit den Standardaufgaben plus allen als "wiederkehrend"
-  markierten.
-- **Wiederkehrend:** Nur bei Jonathan/Katarina möglich (nicht bei den
-  Kinderaufgaben, die bleiben bewusst pro Woche neu).
-- **Board-Bild:** Wird beim nächsten Plugin-Refresh (max. alle 10 Min) neu gerendert;
+- **Datierte Aufgaben** bleiben an ihrem Datum stehen; länger vergangene werden
+  nach zwei Wochen automatisch aufgeräumt.
+- **Ohne festen Tag** gilt für die laufende Woche und verfällt beim Wochenwechsel
+  – das ist die "muss diese Woche noch irgendwann passieren"-Liste.
+- **Wöchentliche Wiederholung** erzeugt Vorkommen 21 Tage im Voraus. Ein einzelnes
+  Vorkommen lässt sich löschen, ohne die Reihe zu beenden; "Wiederholung beenden"
+  entfernt die Regel samt aller künftigen Vorkommen, vergangene bleiben stehen.
+- **Board-Bild:** Wird nach jeder Änderung sofort neu gerendert (siehe oben);
   das Gerät selbst holt sich das Bild in seinem eigenen Poll-Intervall ab (im
   Firmware-Setup einstellbar, z.B. alle 15–30 Min – kürzer kostet mehr Akku).
 

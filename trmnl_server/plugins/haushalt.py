@@ -1,19 +1,21 @@
-"""Renders the Haushalts-Board (household weekly board) for the e-ink display.
+"""Renders the Haushalts-Board for the e-ink display.
 
 Rolling 3-day view (Heute / Morgen / Übermorgen) instead of a full Mo-So
 week — the board is a small 800x480 panel, three wide columns read better
-than seven cramped ones. The window can cross an ISO-week boundary (e.g.
-today=Saturday -> day 3 lands on next week's Monday), so task lookup goes
-through haushalt_store.get_week_for_date() per date rather than assuming a
-single week bucket.
+than seven cramped ones.
+
+Per day, household tasks and Google Calendar events are merged into a single
+list and ordered the way a calendar app presents a day: untimed items first
+(in the manual order set by dragging on the phone page), then everything with
+a time, chronologically — tasks and calendar entries interleaved.
 
 Visual style follows e-ink UI conventions (confirmed against TRMNL's own
 framework docs, since this is a TRMNL fork): sharp corners over rounded
 ones, solid black rules instead of thin gray hairlines, and weight/size for
 hierarchy instead of gray fills — mid-gray fills a) read as flat/dated at
 this resolution and b) nearly vanish once quantized down for the actual
-1-bit e-ink panel. "Done" and "not today" are conveyed via fill/strikethrough
-and bar-vs-plain-text, never via a gray tone.
+1-bit e-ink panel. "Done" is conveyed via a filled badge plus strikethrough,
+never via a gray tone. Tasks flagged `highlight` render as a solid bar.
 
 Text is word-wrapped rather than truncated with an ellipsis: every row is
 measured first (wrapped line count -> pixel height) and only drawn if it
@@ -56,7 +58,7 @@ INK = 0
 
 BADGE_SIZE = 18
 BADGE_GAP = 6
-BADGE_LETTER = {"jonathan": "J", "katarina": "K", "kids": "k"}
+BADGE_LETTER = {"jonathan": "J", "katarina": "K", "kids": "k", "alle": "A"}
 
 WINDOW_DAYS = 3
 DAY_LABELS = ("Heute", "Morgen", "Übermorgen")
@@ -71,7 +73,7 @@ _FONT_FILES = {
 
 
 class HaushaltPlugin(PluginBase):
-    """Rolling 3-day household board: Heute/Morgen/Übermorgen with blocks, tasks, and calendar events."""
+    """Rolling 3-day household board: Heute/Morgen/Übermorgen."""
 
     BASENAME = "haushalt"
     OUTPUT_SUBDIR = "haushalt"
@@ -92,16 +94,19 @@ class HaushaltPlugin(PluginBase):
         today = date.today()
         dates = [today + timedelta(days=i) for i in range(WINDOW_DAYS)]
 
-        blocks = await haushalt_store.get_blocks()
-        tasks_by_date, unassigned = await self._load_rolling_tasks(dates)
+        tasks_by_date = await haushalt_store.get_tasks_for_dates(dates)
+        undated = await haushalt_store.get_undated_tasks()
 
-        calendar_events: dict[int, list[str]] = {}
+        calendar_events: dict[int, list[dict]] = {}
         if google_calendar.is_configured():
             calendar_events = await google_calendar.get_events(today, WINDOW_DAYS)
 
-        image = await asyncio.to_thread(
-            self._render, dates, blocks, tasks_by_date, unassigned, calendar_events
-        )
+        rows_by_date = {
+            d: self._merge_day(tasks_by_date.get(d, []), calendar_events.get(i, []))
+            for i, d in enumerate(dates)
+        }
+
+        image = await asyncio.to_thread(self._render, dates, rows_by_date, undated)
         output = await asyncio.to_thread(self.save_assets, image, output_dir, self.BASENAME)
         logger.info(
             "Haushalt board rendered to %s and %s",
@@ -111,38 +116,29 @@ class HaushaltPlugin(PluginBase):
         return output
 
     @staticmethod
-    async def _load_rolling_tasks(dates: list[date]):
-        """Resolve per-day tasks for the rolling window, fetching each date's
-        ISO-week bucket (cached per week key, since most windows stay within
-        a single week and only split at the Sat/Sun -> Mon boundary)."""
-        week_cache: dict[str, dict] = {}
-
-        async def week_for(d: date) -> dict:
-            iso_year, iso_week, _ = d.isocalendar()
-            key = f"{iso_year}-w{iso_week}"
-            if key not in week_cache:
-                week_cache[key] = await haushalt_store.get_week_for_date(d)
-            return week_cache[key]
-
-        tasks_by_date: dict[date, list[tuple[str, dict]]] = {}
-        for d in dates:
-            payload = await week_for(d)
-            day_tasks = [
-                (column, task)
-                for column in ("jonathan", "katarina", "kids")
-                for task in payload.get(column, [])
-                if task.get("day") == d.weekday()
-            ]
-            tasks_by_date[d] = day_tasks
-
-        current_week = await week_for(date.today())
-        unassigned = [
-            (column, task)
-            for column in ("jonathan", "katarina", "kids")
-            for task in current_week.get(column, [])
-            if task.get("day") is None
-        ]
-        return tasks_by_date, unassigned
+    def _merge_day(tasks: List[dict], events: List[dict]) -> List[dict]:
+        """One chronological list per day: untimed items first (manual order),
+        then timed tasks and calendar events interleaved by time."""
+        rows: List[dict] = []
+        for task in tasks:
+            rows.append({
+                "kind": "task",
+                "text": task["text"],
+                "time": task.get("time"),
+                "person": task.get("person", "alle"),
+                "done": task.get("done", False),
+                "highlight": task.get("highlight", False),
+                "order": task.get("order", 0),
+            })
+        for event in events:
+            rows.append({
+                "kind": "event",
+                "text": event["title"],
+                "time": event.get("time"),
+                "order": 0,
+            })
+        rows.sort(key=lambda r: (1 if r["time"] else 0, r["time"] or "", r["order"]))
+        return rows
 
     # -- fonts ---------------------------------------------------------------
 
@@ -153,32 +149,26 @@ class HaushaltPlugin(PluginBase):
 
     # -- main render -----------------------------------------------------------
 
-    def _render(self, dates, blocks, tasks_by_date, unassigned, calendar_events) -> Image.Image:
+    def _render(self, dates, rows_by_date, undated) -> Image.Image:
         image = Image.new("L", CANVAS_SIZE, color=255)
         draw = ImageDraw.Draw(image)
 
         header_label_font = self._font(22, "bold")
         header_date_font = self._font(13, "regular")
-        block_font = self._font(15, "bold")
+        bar_font = self._font(15, "bold")
         item_font = self._font(15, "regular")
+        time_font = self._font(15, "bold")
         badge_font = self._font(11, "bold")
         footer_header_font = self._font(18, "bold")
         footer_item_font = self._font(15, "regular")
-
-        blocks_by_weekday: dict[int, list[str]] = {}
-        for b in blocks:
-            blocks_by_weekday.setdefault(b["day"], []).append(b["label"])
 
         col_width = (CANVAS_SIZE[0] - 2 * MARGIN) / WINDOW_DAYS
 
         for i, d in enumerate(dates):
             x0 = MARGIN + i * col_width
             self._draw_day_column(
-                draw, x0, col_width, i, d,
-                blocks_by_weekday.get(d.weekday(), []),
-                tasks_by_date.get(d, []),
-                calendar_events.get(i, []),
-                header_label_font, header_date_font, block_font, item_font, badge_font,
+                draw, x0, col_width, i, d, rows_by_date.get(d, []),
+                header_label_font, header_date_font, bar_font, item_font, time_font, badge_font,
             )
 
         draw.line([(MARGIN, RULE_Y), (CANVAS_SIZE[0] - MARGIN, RULE_Y)], fill=INK, width=RULE_THICK)
@@ -186,16 +176,15 @@ class HaushaltPlugin(PluginBase):
             x = MARGIN + i * col_width
             draw.line([(x, GRID_TOP), (x, GRID_BOTTOM)], fill=INK, width=RULE_THICK)
 
-        self._draw_footer(draw, unassigned, footer_header_font, footer_item_font, badge_font)
+        self._draw_footer(draw, undated, footer_header_font, footer_item_font, badge_font)
 
         return image
 
     # -- day columns ---------------------------------------------------------
 
     def _draw_day_column(
-        self, draw, x0, col_width, i, d,
-        block_labels, tasks, events,
-        header_label_font, header_date_font, block_font, item_font, badge_font,
+        self, draw, x0, col_width, i, d, rows,
+        header_label_font, header_date_font, bar_font, item_font, time_font, badge_font,
     ) -> None:
         is_today = i == 0
         label = DAY_LABELS[i]
@@ -217,57 +206,50 @@ class HaushaltPlugin(PluginBase):
         inner_w = col_width - 12
         y = BODY_TOP
         bottom_limit = GRID_BOTTOM - 10
-
-        for block_label in block_labels:
-            h = self._draw_block_bar(draw, inner_x, inner_w, y, block_label, block_font, bottom_limit)
-            if h is None:
-                break
-            y += h + 8
-
         shown = 0
-        for column, task in tasks:
-            row_h = self._draw_task_row(draw, inner_x, y, inner_w, column, task, item_font, badge_font, bottom_limit)
-            if row_h is None:
+
+        for row in rows:
+            if row["kind"] == "task" and row["highlight"]:
+                height = self._draw_highlight_bar(draw, inner_x, inner_w, y, row, bar_font, bottom_limit)
+            elif row["kind"] == "task":
+                height = self._draw_task_row(draw, inner_x, y, inner_w, row, item_font, time_font, badge_font, bottom_limit)
+            else:
+                height = self._draw_event_row(draw, inner_x, y, inner_w, row, item_font, time_font, bottom_limit)
+            if height is None:
                 break
-            y += row_h + 8
+            y += height + 8
             shown += 1
 
-        for event_text in events:
-            row_h = self._draw_event_row(draw, inner_x, y, inner_w, event_text, item_font, bottom_limit)
-            if row_h is None:
-                break
-            y += row_h + 8
-            shown += 1
-
-        remaining = len(tasks) + len(events) - shown
+        remaining = len(rows) - shown
         if remaining > 0 and y + item_font.size <= bottom_limit:
             draw.text((inner_x, y), f"+{remaining} mehr", fill=INK, font=item_font)
 
-    def _draw_block_bar(self, draw, x0, width, y, label, block_font, bottom_limit) -> Optional[int]:
+    def _draw_highlight_bar(self, draw, x0, width, y, row, bar_font, bottom_limit) -> Optional[int]:
         pad = 10
-        lines = self._wrap(label, block_font, width - 2 * pad)
-        h = self._text_block_height(lines, block_font) + 12
+        label = self._with_time(row)
+        lines = self._wrap(label, bar_font, width - 2 * pad)
+        h = self._text_block_height(lines, bar_font) + 12
         if y + h > bottom_limit:
             return None
         draw.rectangle([x0, y, x0 + width, y + h], fill=INK)
-        self._draw_lines(draw, x0 + pad, y + 6, lines, block_font, fill=255)
+        self._draw_lines(draw, x0 + pad, y + 6, lines, bar_font, fill=255, strike=row["done"])
         return h
 
-    def _draw_task_row(self, draw, x, y, max_width, column, task, item_font, badge_font, bottom_limit) -> Optional[int]:
-        done = bool(task.get("done"))
+    def _draw_task_row(self, draw, x, y, max_width, row, item_font, time_font, badge_font, bottom_limit) -> Optional[int]:
         text_x = x + BADGE_SIZE + BADGE_GAP
-        lines = self._wrap(task["text"], item_font, max_width - BADGE_SIZE - BADGE_GAP)
+        avail = max_width - BADGE_SIZE - BADGE_GAP
+        lines = self._wrap(self._with_time(row), item_font, avail)
         row_h = max(BADGE_SIZE, self._text_block_height(lines, item_font))
         if y + row_h > bottom_limit:
             return None
-        self._draw_badge(draw, x, y, column, done, badge_font)
-        self._draw_lines(draw, text_x, y, lines, item_font, strike=done)
+        self._draw_badge(draw, x, y, row["person"], row["done"], badge_font)
+        self._draw_lines(draw, text_x, y, lines, item_font, strike=row["done"])
         return row_h
 
-    def _draw_event_row(self, draw, x, y, max_width, text, item_font, bottom_limit) -> Optional[int]:
+    def _draw_event_row(self, draw, x, y, max_width, row, item_font, time_font, bottom_limit) -> Optional[int]:
         r = 6
         text_x = x + 2 * r + 8
-        lines = self._wrap(text, item_font, max_width - 2 * r - 8)
+        lines = self._wrap(self._with_time(row), item_font, max_width - 2 * r - 8)
         row_h = max(BADGE_SIZE, self._text_block_height(lines, item_font))
         if y + row_h > bottom_limit:
             return None
@@ -277,8 +259,12 @@ class HaushaltPlugin(PluginBase):
         return row_h
 
     @staticmethod
-    def _draw_badge(draw, x, y, column, done, font) -> None:
-        letter = BADGE_LETTER.get(column, "?")
+    def _with_time(row: dict) -> str:
+        return f"{row['time']} {row['text']}" if row.get("time") else row["text"]
+
+    @staticmethod
+    def _draw_badge(draw, x, y, person, done, font) -> None:
+        letter = BADGE_LETTER.get(person, "?")
         box = [x, y, x + BADGE_SIZE, y + BADGE_SIZE]
         if done:
             draw.rectangle(box, fill=INK)
@@ -288,9 +274,9 @@ class HaushaltPlugin(PluginBase):
             text_fill = INK
         draw.text((x + BADGE_SIZE / 2, y + BADGE_SIZE / 2), letter, font=font, fill=text_fill, anchor="mm")
 
-    # -- unassigned-tasks footer ------------------------------------------
+    # -- undated-tasks footer ------------------------------------------
 
-    def _draw_footer(self, draw, unassigned, header_font, item_font, badge_font) -> None:
+    def _draw_footer(self, draw, undated, header_font, item_font, badge_font) -> None:
         draw.line(
             [(MARGIN, FOOTER_RULE_Y), (CANVAS_SIZE[0] - MARGIN, FOOTER_RULE_Y)],
             fill=INK, width=RULE_THICK,
@@ -301,7 +287,7 @@ class HaushaltPlugin(PluginBase):
         draw.text((x, y), "Diese Woche", font=header_font, fill=INK)
         y += header_font.size + 10
 
-        if not unassigned:
+        if not undated:
             draw.text((x, y), "–", font=item_font, fill=INK)
             return
 
@@ -312,7 +298,7 @@ class HaushaltPlugin(PluginBase):
         cx, cy = x, y
         line_height_used = 0
         shown = 0
-        for column, task in unassigned:
+        for task in undated:
             done = bool(task.get("done"))
             lines = self._wrap(task["text"], item_font, full_width - BADGE_SIZE - BADGE_GAP)
             item_h = max(BADGE_SIZE, self._text_block_height(lines, item_font))
@@ -328,7 +314,7 @@ class HaushaltPlugin(PluginBase):
             if cy + item_h > FOOTER_BOTTOM:
                 break
 
-            self._draw_badge(draw, cx, cy, column, done, badge_font)
+            self._draw_badge(draw, cx, cy, task.get("person", "alle"), done, badge_font)
             self._draw_lines(draw, cx + BADGE_SIZE + BADGE_GAP, cy, lines, item_font, strike=done)
             line_height_used = max(line_height_used, item_h)
             shown += 1
@@ -340,7 +326,7 @@ class HaushaltPlugin(PluginBase):
             else:
                 cx += item_w + item_gap
 
-        remaining = len(unassigned) - shown
+        remaining = len(undated) - shown
         if remaining > 0:
             draw.text((cx, cy), f"+{remaining} mehr", font=item_font, fill=INK)
 

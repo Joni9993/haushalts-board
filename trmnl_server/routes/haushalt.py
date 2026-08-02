@@ -1,5 +1,5 @@
-"""API for the Haushalts-Board: tasks (add/toggle/delete) and weekly blocks
-(Sport, Hobby-Tag, etc. — drag & drop between weekdays).
+"""API for the Haushalts-Board: tasks with real dates, optional times,
+highlighting, and weekly repeat rules.
 
 Kept separate from the TRMNL device-protocol routes in api.py. This is what
 the mobile page (web/haushalt.html) talks to; the e-ink display itself only
@@ -13,6 +13,9 @@ poll, with no fixed "every N minutes" render in between.
 
 from __future__ import annotations
 
+import re
+from datetime import date
+
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
@@ -21,40 +24,55 @@ from ..services import plugins as plugin_service
 
 router = APIRouter(prefix="/api/haushalt", tags=["haushalt"])
 
-VALID_COLUMNS = {"jonathan", "katarina", "kids"}
-VALID_PEOPLE = {"jonathan", "katarina"}
+_TIME_RE = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
 
 
 class NewTask(BaseModel):
     text: str
-    day: int | None = None  # 0=Mo ... 6=So, None = kein bestimmter Tag
+    person: str
+    date: str | None = None          # ISO "YYYY-MM-DD", None = kein fester Tag
+    time: str | None = None          # "HH:MM"
+    highlight: bool = False
+    repeat_weekly: bool = False
 
 
-class SetTaskDay(BaseModel):
-    day: int | None = None
+class PatchTask(BaseModel):
+    text: str | None = None
+    person: str | None = None
+    date: str | None = None
+    time: str | None = None
+    highlight: bool | None = None
+    # Explicit clear flags, since None already means "leave unchanged" above.
+    clear_date: bool = False
+    clear_time: bool = False
 
 
-class NewBlock(BaseModel):
-    label: str
-    day: int  # 0=Mo ... 6=So
+class Reorder(BaseModel):
+    ids: list[str]
 
 
-class MoveBlock(BaseModel):
-    day: int
+def _check_person(person: str) -> None:
+    if person not in haushalt_store.OWNERS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unbekannte Person '{person}'. Erlaubt: {', '.join(haushalt_store.OWNERS)}",
+        )
 
 
-class RenameBlock(BaseModel):
-    label: str
+def _check_date(value: str | None) -> None:
+    if value is None:
+        return
+    try:
+        date.fromisoformat(value)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="date muss im Format YYYY-MM-DD sein") from None
 
 
-def _check_column(column: str) -> None:
-    if column not in VALID_COLUMNS:
-        raise HTTPException(status_code=404, detail=f"Unknown column '{column}'")
-
-
-def _check_day(day: int) -> None:
-    if not (0 <= day <= 6):
-        raise HTTPException(status_code=400, detail="day muss zwischen 0 (Mo) und 6 (So) liegen")
+def _check_time(value: str | None) -> None:
+    if value is None:
+        return
+    if not _TIME_RE.match(value):
+        raise HTTPException(status_code=400, detail="time muss im Format HH:MM sein")
 
 
 async def _trigger_board_refresh() -> None:
@@ -74,103 +92,92 @@ async def _trigger_board_refresh() -> None:
         pass
 
 
-# ---------------------------------------------------------------------------
-# Tasks
-# ---------------------------------------------------------------------------
-
 @router.get("/state")
 async def get_state():
-    return await haushalt_store.get_current_week()
+    return await haushalt_store.get_state()
 
 
-@router.post("/{column}/tasks")
-async def add_task(column: str, payload: NewTask):
-    _check_column(column)
+@router.post("/tasks")
+async def add_task(payload: NewTask):
     text = payload.text.strip()
     if not text:
-        raise HTTPException(status_code=400, detail="Task text darf nicht leer sein")
-    if payload.day is not None:
-        _check_day(payload.day)
-    result = await haushalt_store.add_task(column, text, payload.day)
+        raise HTTPException(status_code=400, detail="Text darf nicht leer sein")
+    _check_person(payload.person)
+    _check_date(payload.date)
+    _check_time(payload.time)
+    if payload.repeat_weekly and not payload.date:
+        raise HTTPException(
+            status_code=400,
+            detail="Wöchentliche Wiederholung braucht einen Tag (der Wochentag ergibt sich daraus)",
+        )
+
+    result = await haushalt_store.add_task(
+        text=text,
+        person=payload.person,
+        task_date=payload.date,
+        time_value=payload.time,
+        highlight=payload.highlight,
+        repeat_weekly=payload.repeat_weekly,
+    )
     await _trigger_board_refresh()
     return result
 
 
-@router.post("/{column}/tasks/{idx}/day")
-async def set_task_day(column: str, idx: int, payload: SetTaskDay):
-    _check_column(column)
-    if payload.day is not None:
-        _check_day(payload.day)
-    result = await haushalt_store.set_task_day(column, idx, payload.day)
+@router.patch("/tasks/{task_id}")
+async def patch_task(task_id: str, payload: PatchTask):
+    if payload.person is not None:
+        _check_person(payload.person)
+    _check_date(payload.date)
+    _check_time(payload.time)
+
+    fields: dict = {}
+    if payload.text is not None:
+        text = payload.text.strip()
+        if not text:
+            raise HTTPException(status_code=400, detail="Text darf nicht leer sein")
+        fields["text"] = text
+    if payload.person is not None:
+        fields["person"] = payload.person
+    if payload.highlight is not None:
+        fields["highlight"] = payload.highlight
+    if payload.clear_date:
+        fields["date"] = None
+    elif payload.date is not None:
+        fields["date"] = payload.date
+    if payload.clear_time:
+        fields["time"] = None
+    elif payload.time is not None:
+        fields["time"] = payload.time
+
+    result = await haushalt_store.update_task(task_id, **fields)
     await _trigger_board_refresh()
     return result
 
 
-@router.post("/{column}/tasks/{idx}/toggle")
-async def toggle_task(column: str, idx: int):
-    _check_column(column)
-    result = await haushalt_store.toggle_task(column, idx)
+@router.post("/tasks/{task_id}/toggle")
+async def toggle_task(task_id: str):
+    result = await haushalt_store.toggle_task(task_id)
     await _trigger_board_refresh()
     return result
 
 
-@router.delete("/{column}/tasks/{idx}")
-async def delete_task(column: str, idx: int):
-    _check_column(column)
-    result = await haushalt_store.delete_task(column, idx)
+@router.delete("/tasks/{task_id}")
+async def delete_task(task_id: str):
+    result = await haushalt_store.delete_task(task_id)
     await _trigger_board_refresh()
     return result
 
 
-@router.post("/{person}/tasks/{idx}/recurring")
-async def toggle_recurring(person: str, idx: int):
-    if person not in VALID_PEOPLE:
-        raise HTTPException(status_code=404, detail=f"'{person}' kann nicht wiederkehrend sein (nur jonathan/katarina)")
-    result = await haushalt_store.toggle_recurring(person, idx)
+@router.post("/tasks/reorder")
+async def reorder_tasks(payload: Reorder):
+    result = await haushalt_store.reorder_tasks(payload.ids)
     await _trigger_board_refresh()
     return result
 
 
-# ---------------------------------------------------------------------------
-# Weekly blocks (Sport, Hobby-Tag, ... — drag & drop planner)
-# ---------------------------------------------------------------------------
-
-@router.get("/blocks")
-async def get_blocks():
-    return {"blocks": await haushalt_store.get_blocks()}
-
-
-@router.post("/blocks")
-async def add_block(payload: NewBlock):
-    label = payload.label.strip()
-    if not label:
-        raise HTTPException(status_code=400, detail="Block-Name darf nicht leer sein")
-    _check_day(payload.day)
-    blocks = await haushalt_store.add_block(label, payload.day)
+@router.delete("/templates/{template_id}")
+async def stop_repeating(template_id: str):
+    """Stop a weekly repeat: removes the rule and its future occurrences."""
+    result = await haushalt_store.stop_repeating(template_id)
     await _trigger_board_refresh()
-    return {"blocks": blocks}
-
-
-@router.post("/blocks/{block_id}/move")
-async def move_block(block_id: str, payload: MoveBlock):
-    _check_day(payload.day)
-    blocks = await haushalt_store.move_block(block_id, payload.day)
-    await _trigger_board_refresh()
-    return {"blocks": blocks}
-
-
-@router.post("/blocks/{block_id}/rename")
-async def rename_block(block_id: str, payload: RenameBlock):
-    label = payload.label.strip()
-    if not label:
-        raise HTTPException(status_code=400, detail="Block-Name darf nicht leer sein")
-    blocks = await haushalt_store.rename_block(block_id, label)
-    await _trigger_board_refresh()
-    return {"blocks": blocks}
-
-
-@router.delete("/blocks/{block_id}")
-async def delete_block(block_id: str):
-    blocks = await haushalt_store.delete_block(block_id)
-    await _trigger_board_refresh()
-    return {"blocks": blocks}
+    return result

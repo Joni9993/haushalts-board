@@ -2,383 +2,779 @@
 <html lang="de">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#faf3e6">
 <title>Unsere Woche zuhause</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=Caveat:wght@600;700&family=Nunito+Sans:wght@400;600;700&display=swap" rel="stylesheet">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@600;700&family=Caveat:wght@600&family=Nunito+Sans:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
   :root{
-    --cream:#faf3e6; --paper:#fffbf3; --sage:#7c8a6b; --sage-dark:#5b6849;
-    --rose:#c98a8a; --rose-dark:#a8615f; --butter:#e3c876; --ink:#4a3f33;
-    --muted:#8c7f6c; --line:#e8d9bd;
+    --cream:#faf3e6; --paper:#fffbf3; --ink:#4a3f33; --muted:#8c7f6c; --line:#e8d9bd;
+    --sage:#7c8a6b; --sage-dark:#5b6849;
+    --rose:#c98a8a; --rose-dark:#a8615f;
+    --butter:#e3c876; --butter-dark:#9a7f28;
+    --stone:#a89880; --stone-dark:#7d6d55;
+    --radius:16px;
+    --tap:44px; /* minimum touch target */
   }
-  *{box-sizing:border-box;}
+  *{ box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body{ overscroll-behavior-y:none; }
   body{
     margin:0;
     background:
-      radial-gradient(circle at 8% 0%, rgba(227,200,118,0.22), transparent 42%),
-      radial-gradient(circle at 92% 10%, rgba(124,138,107,0.16), transparent 40%),
-      radial-gradient(circle at 50% 100%, rgba(201,138,138,0.12), transparent 45%),
+      radial-gradient(circle at 8% 0%, rgba(227,200,118,0.20), transparent 42%),
+      radial-gradient(circle at 92% 8%, rgba(124,138,107,0.14), transparent 40%),
       var(--cream);
-    color:var(--ink); font-family:"Nunito Sans", -apple-system, sans-serif;
-    padding:26px 16px 60px;
+    background-attachment:fixed;
+    color:var(--ink);
+    font-family:"Nunito Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    font-size:16px;
+    padding:0 0 120px;
   }
-  h1{ font-family:"Cormorant Garamond",serif; font-weight:700; font-size:1.9rem; margin:0 0 2px; color:var(--sage-dark); text-align:center; }
-  .sub{ font-family:"Caveat",cursive; color:var(--rose-dark); font-size:1.25rem; margin-bottom:18px; text-align:center; }
-  .week-bar{
-    background:var(--paper); border-radius:16px 6px 16px 6px; padding:12px 18px; margin-bottom:18px;
-    border:2px dashed var(--line); text-align:center; font-family:"Cormorant Garamond",serif;
-    font-size:1.2rem; font-weight:700; color:var(--sage-dark);
-  }
+  button{ font-family:inherit; font-size:inherit; color:inherit; cursor:pointer; }
+  input,select{ font-family:inherit; font-size:16px; color:inherit; } /* 16px stops iOS zoom-on-focus */
 
-  /* Weekly planner */
-  .planner{
-    background:var(--paper); border-radius:18px 8px 18px 8px; padding:16px; margin-bottom:20px;
-    border:1px solid var(--line); box-shadow:0 3px 12px rgba(90,70,40,0.06);
+  /* ---------- header ---------- */
+  header{
+    position:sticky; top:0; z-index:30;
+    background:rgba(250,243,230,0.94);
+    backdrop-filter:saturate(1.4) blur(8px);
+    border-bottom:1px solid var(--line);
+    padding:calc(env(safe-area-inset-top) + 12px) 16px 12px;
   }
-  .planner h2{ font-family:"Cormorant Garamond",serif; margin:0 0 4px; font-size:1.3rem; }
-  .planner .hint{ font-size:0.75rem; color:var(--muted); margin-bottom:12px; font-style:italic; }
-  .plan-grid{
-    display:grid; grid-template-columns: repeat(7, 1fr); gap:6px;
+  .title-row{ display:flex; align-items:baseline; justify-content:space-between; gap:10px; }
+  h1{
+    font-family:"Cormorant Garamond",Georgia,serif; font-weight:700; font-size:1.5rem;
+    margin:0; color:var(--sage-dark); letter-spacing:0.01em;
   }
-  .plan-day{
-    background:rgba(124,138,107,0.06); border-radius:12px; padding:6px;
-    min-height:110px; display:flex; flex-direction:column; gap:6px;
-  }
-  .plan-day.dragover{ background:rgba(227,200,118,0.28); }
-  .plan-day-label{ font-size:0.72rem; color:var(--muted); text-align:center; font-weight:700; }
-  .plan-block{
-    background:var(--butter); color:#4a3f33; border-radius:8px; padding:6px 6px;
-    font-size:0.72rem; font-weight:600; text-align:center; cursor:grab;
-    word-break:break-word; touch-action:none; user-select:none;
-  }
-  .plan-block.dragging{ opacity:0.4; }
-  .drag-ghost{
-    position:fixed; z-index:1000; pointer-events:none;
-    background:var(--butter); color:#4a3f33; border-radius:8px; padding:6px 10px;
-    font-size:0.72rem; font-weight:600; box-shadow:0 4px 14px rgba(0,0,0,0.25);
-    transform:translate(-50%,-50%);
-  }
-  .plan-add-row{ display:flex; gap:8px; margin-top:10px; }
-  .plan-add-row input{
-    flex:1; background:var(--cream); border:1.5px solid var(--line); border-radius:12px;
-    padding:8px 12px; font-size:0.85rem;
-  }
-  .plan-add-row select{
-    border:1.5px solid var(--line); border-radius:12px; padding:8px; font-size:0.85rem; background:var(--cream);
-  }
-  .plan-add-row button{ border:none; border-radius:12px; padding:8px 14px; background:var(--sage-dark); color:#fff; font-weight:700; }
+  .kw{ font-size:0.78rem; color:var(--muted); white-space:nowrap; }
+  .sub{ font-family:"Caveat",cursive; color:var(--rose-dark); font-size:1.05rem; margin-top:1px; }
 
-  .col{
-    background:var(--paper); border-radius:18px 8px 18px 8px; padding:16px; margin-bottom:14px;
-    border:1px solid var(--line); box-shadow:0 3px 12px rgba(90,70,40,0.06);
+  /* ---------- filter chips ---------- */
+  .filters{ display:flex; gap:6px; margin-top:10px; overflow-x:auto; scrollbar-width:none; padding-bottom:2px; }
+  .filters::-webkit-scrollbar{ display:none; }
+  .filter{
+    flex:0 0 auto; border:1.5px solid var(--line); background:var(--paper);
+    border-radius:999px; padding:7px 13px; font-size:0.82rem; font-weight:600; color:var(--muted);
   }
-  .col.jonathan{ border-top:4px solid var(--sage); }
-  .col.katarina{ border-top:4px solid var(--rose); }
-  .col.kids{ border-top:4px solid var(--butter); }
-  .col h2{ font-family:"Cormorant Garamond",serif; margin:0 0 10px; font-size:1.3rem; }
-  ul{ list-style:none; padding:0; margin:0 0 12px; }
-  li{
-    display:flex; align-items:center; gap:8px; font-size:0.9rem; margin-bottom:6px;
-    padding:8px 10px; border-radius:12px; background:rgba(124,138,107,0.06);
+  .filter[aria-pressed="true"]{ background:var(--ink); border-color:var(--ink); color:#fff; }
+
+  /* ---------- layout ---------- */
+  main{ padding:14px 12px 0; max-width:760px; margin:0 auto; }
+  .week-head{
+    display:flex; align-items:center; gap:10px;
+    margin:22px 4px 8px; font-family:"Cormorant Garamond",Georgia,serif;
+    font-size:1.05rem; font-weight:700; color:var(--sage-dark); text-transform:none;
   }
-  .col.katarina li{ background:rgba(201,138,138,0.08); }
-  .col.kids li{ background:rgba(227,200,118,0.14); }
-  li.done{ opacity:0.55; }
-  li.done .txt{ text-decoration:line-through; }
-  .emoji{ font-size:1.25rem; cursor:pointer; }
-  .txt{ flex:1; cursor:pointer; }
-  .star{ background:none; border:none; cursor:pointer; opacity:0.3; font-size:0.95rem; }
-  .star.active{ opacity:1; }
-  .del{ background:none; border:none; color:var(--muted); cursor:pointer; opacity:0.5; }
-  .add-row{ display:flex; gap:8px; }
-  .add-row select{
-    border:1.5px solid var(--line); border-radius:12px; padding:8px; font-size:0.78rem; background:var(--cream);
+  .week-head::after{ content:""; flex:1; height:1px; background:var(--line); }
+  .week-head:first-child{ margin-top:4px; }
+
+  /* ---------- day card ---------- */
+  .day{
+    background:var(--paper); border:1px solid var(--line); border-radius:var(--radius);
+    margin-bottom:10px; overflow:hidden;
   }
-  .day-badge{
-    border:1px solid var(--line); border-radius:8px; font-size:0.7rem; padding:2px 4px;
-    background:var(--cream); color:var(--muted);
+  .day.today{ border-color:var(--sage); border-width:2px; }
+  .day.empty .day-body{ display:none; }
+  /* Empty days stay in the list so you can plan into them, but they shouldn't
+     cost as much vertical space as days that actually have something in them. */
+  .day.empty{ background:transparent; }
+  .day.empty .day-head{ padding:5px 12px; min-height:38px; }
+  .day.empty .day-name{ color:var(--muted); font-weight:600; }
+  .day-head{
+    display:flex; align-items:center; gap:10px; padding:11px 12px;
+    min-height:var(--tap);
   }
-  .add-row input{
-    flex:1; background:var(--cream); border:1.5px solid var(--line); border-radius:12px;
-    padding:9px 12px; font-size:0.88rem;
+  .day-name{ font-weight:700; font-size:0.95rem; }
+  .day.today .day-name{ color:var(--sage-dark); }
+  .day-date{ font-size:0.78rem; color:var(--muted); }
+  .day-spacer{ flex:1; }
+  .on-board{
+    font-size:0.62rem; font-weight:700; letter-spacing:0.06em; text-transform:uppercase;
+    color:var(--muted); border:1px solid var(--line); border-radius:999px; padding:3px 7px;
   }
-  .add-row button{ border:none; border-radius:12px; padding:9px 16px; color:#fff; font-weight:700; }
-  .jonathan .add-row button{ background:var(--sage); }
-  .katarina .add-row button{ background:var(--rose); }
-  .kids .add-row button{ background:var(--butter); color:#4a3f33; }
-  .status{ font-size:0.75rem; color:var(--muted); text-align:center; margin-top:16px; font-style:italic; }
+  .day.today .on-board{ color:var(--sage-dark); border-color:var(--sage); }
+  .add-day{
+    width:32px; height:32px; flex:0 0 auto; border-radius:50%;
+    border:1.5px solid var(--line); background:transparent; color:var(--muted);
+    font-size:1.15rem; line-height:1; display:grid; place-items:center; padding:0;
+  }
+  .add-day:active{ background:var(--cream); }
+  .day-body{ padding:0 8px 8px; }
+
+  /* ---------- item row ---------- */
+  .item{
+    display:flex; align-items:flex-start; gap:9px;
+    padding:8px; border-radius:11px; margin-bottom:3px;
+    background:transparent; touch-action:pan-y;
+  }
+  .item.dragging{ opacity:0.35; }
+  .item.drop-target{ box-shadow:inset 0 2px 0 var(--sage); }
+  .check{
+    flex:0 0 auto; width:24px; height:24px; margin-top:1px; padding:0;
+    border:2px solid var(--ink); border-radius:7px; background:transparent;
+    display:grid; place-items:center; font-size:0.72rem; font-weight:800; color:transparent;
+  }
+  .check.on{ background:var(--ink); color:#fff; }
+  .item.jonathan .check{ border-color:var(--sage-dark); }
+  .item.jonathan .check.on{ background:var(--sage-dark); }
+  .item.katarina .check{ border-color:var(--rose-dark); }
+  .item.katarina .check.on{ background:var(--rose-dark); }
+  .item.kids .check{ border-color:var(--butter-dark); }
+  .item.kids .check.on{ background:var(--butter-dark); }
+  .item.alle .check{ border-color:var(--stone-dark); }
+  .item.alle .check.on{ background:var(--stone-dark); }
+
+  .item-main{ flex:1; min-width:0; text-align:left; background:none; border:none; padding:0; }
+  .item-text{ font-size:0.95rem; line-height:1.35; word-break:break-word; }
+  .item.done .item-text{ text-decoration:line-through; color:var(--muted); }
+  .item-meta{ display:flex; flex-wrap:wrap; align-items:center; gap:6px; margin-top:4px; }
+  .tag{
+    font-size:0.7rem; font-weight:700; padding:2px 7px; border-radius:999px;
+    background:rgba(0,0,0,0.05); color:var(--muted);
+  }
+  .tag.who-jonathan{ background:rgba(124,138,107,0.18); color:var(--sage-dark); }
+  .tag.who-katarina{ background:rgba(201,138,138,0.20); color:var(--rose-dark); }
+  .tag.who-kids{ background:rgba(227,200,118,0.30); color:var(--butter-dark); }
+  .tag.who-alle{ background:rgba(168,152,128,0.22); color:var(--stone-dark); }
+  .tag.time{ background:var(--ink); color:#fff; }
+  .tag.repeat, .tag.star{ background:transparent; border:1px solid var(--line); }
+
+  .item.highlight{ background:var(--ink); }
+  .item.highlight .item-text{ color:#fff; font-weight:700; }
+  .item.highlight.done .item-text{ color:rgba(255,255,255,0.6); }
+  .item.highlight .tag{ background:rgba(255,255,255,0.18); color:#fff; }
+  .item.highlight .tag.time{ background:#fff; color:var(--ink); }
+  .item.highlight .check{ border-color:#fff; }
+  .item.highlight .check.on{ background:#fff; color:var(--ink); }
+  .item.highlight .grip{ color:rgba(255,255,255,0.7); }
+
+  .grip{
+    flex:0 0 auto; width:30px; align-self:stretch; min-height:28px;
+    display:grid; place-items:center; color:var(--line);
+    background:none; border:none; padding:0; touch-action:none; cursor:grab;
+  }
+  .grip svg{ width:15px; height:15px; }
+
+  .event .item-text{ color:var(--ink); }
+  .event-dot{
+    flex:0 0 auto; width:24px; height:24px; margin-top:1px;
+    display:grid; place-items:center; color:var(--muted);
+  }
+  .empty-note{ padding:4px 10px 10px; font-size:0.82rem; color:var(--muted); font-style:italic; }
+
+  /* ---------- compose sheet ---------- */
+  .fab{
+    position:fixed; right:16px; bottom:calc(env(safe-area-inset-bottom) + 18px); z-index:40;
+    height:56px; padding:0 22px; border-radius:999px; border:none;
+    background:var(--sage-dark); color:#fff; font-weight:700; font-size:1rem;
+    box-shadow:0 6px 20px rgba(60,50,30,0.28); display:flex; align-items:center; gap:8px;
+  }
+  .fab:active{ transform:translateY(1px); }
+  .scrim{
+    position:fixed; inset:0; z-index:50; background:rgba(50,40,25,0.45);
+    opacity:0; pointer-events:none; transition:opacity .18s ease;
+  }
+  .scrim.open{ opacity:1; pointer-events:auto; }
+  .sheet{
+    position:fixed; left:0; right:0; bottom:0; z-index:51;
+    background:var(--paper); border-radius:22px 22px 0 0;
+    padding:8px 16px calc(env(safe-area-inset-bottom) + 18px);
+    max-height:92vh; overflow-y:auto;
+    transform:translateY(102%); transition:transform .22s cubic-bezier(.32,.72,0,1);
+    box-shadow:0 -8px 30px rgba(60,50,30,0.20);
+  }
+  .sheet.open{ transform:translateY(0); }
+  .sheet-grab{ width:40px; height:4px; border-radius:999px; background:var(--line); margin:6px auto 12px; }
+  .sheet h2{
+    font-family:"Cormorant Garamond",Georgia,serif; font-size:1.25rem; margin:0 0 14px; color:var(--sage-dark);
+  }
+  .field{ margin-bottom:16px; }
+  .field > label{
+    display:block; font-size:0.74rem; font-weight:700; text-transform:uppercase;
+    letter-spacing:0.07em; color:var(--muted); margin-bottom:7px;
+  }
+  .text-input{
+    width:100%; background:var(--cream); border:1.5px solid var(--line); border-radius:12px;
+    padding:13px 14px; min-height:var(--tap);
+  }
+  .text-input:focus{ outline:none; border-color:var(--sage); }
+  .chips{ display:flex; flex-wrap:wrap; gap:7px; }
+  .chip{
+    border:1.5px solid var(--line); background:var(--cream); border-radius:999px;
+    padding:9px 14px; font-size:0.86rem; font-weight:600; min-height:var(--tap);
+    display:inline-flex; align-items:center; gap:6px;
+  }
+  .chip[aria-pressed="true"]{ background:var(--ink); border-color:var(--ink); color:#fff; }
+  .chip.who-jonathan[aria-pressed="true"]{ background:var(--sage-dark); border-color:var(--sage-dark); }
+  .chip.who-katarina[aria-pressed="true"]{ background:var(--rose-dark); border-color:var(--rose-dark); }
+  .chip.who-kids[aria-pressed="true"]{ background:var(--butter-dark); border-color:var(--butter-dark); }
+  .chip.who-alle[aria-pressed="true"]{ background:var(--stone-dark); border-color:var(--stone-dark); }
+  .chip-date{ position:relative; overflow:hidden; }
+  .chip-date input{ position:absolute; inset:0; opacity:0; width:100%; height:100%; }
+  .row-2{ display:flex; gap:10px; }
+  .row-2 > *{ flex:1; }
+  .time-input{
+    width:100%; background:var(--cream); border:1.5px solid var(--line);
+    border-radius:12px; padding:11px 12px; min-height:var(--tap);
+  }
+  .toggle{
+    display:flex; align-items:center; justify-content:space-between; gap:12px;
+    padding:12px 14px; border:1.5px solid var(--line); border-radius:12px;
+    background:var(--cream); margin-bottom:9px; min-height:var(--tap); width:100%;
+    text-align:left; font-size:0.9rem; font-weight:600;
+  }
+  .toggle[aria-pressed="true"]{ border-color:var(--ink); }
+  .toggle .switch{
+    flex:0 0 auto; width:44px; height:26px; border-radius:999px; background:var(--line);
+    position:relative; transition:background .15s;
+  }
+  .toggle .switch::after{
+    content:""; position:absolute; top:3px; left:3px; width:20px; height:20px;
+    border-radius:50%; background:#fff; transition:transform .15s;
+    box-shadow:0 1px 3px rgba(0,0,0,0.25);
+  }
+  .toggle[aria-pressed="true"] .switch{ background:var(--sage-dark); }
+  .toggle[aria-pressed="true"] .switch::after{ transform:translateX(18px); }
+  .toggle .hint{ display:block; font-weight:400; font-size:0.76rem; color:var(--muted); margin-top:2px; }
+  .sheet-actions{ display:flex; gap:10px; margin-top:18px; }
+  .btn{
+    flex:1; border:none; border-radius:14px; padding:15px; font-weight:700; min-height:var(--tap);
+  }
+  .btn-primary{ background:var(--sage-dark); color:#fff; }
+  .btn-primary:disabled{ opacity:0.45; }
+  .btn-ghost{ background:transparent; border:1.5px solid var(--line); color:var(--muted); flex:0 0 auto; padding:15px 20px; }
+  .btn-danger{ background:transparent; border:1.5px solid var(--rose); color:var(--rose-dark); width:100%; margin-top:10px; padding:13px; border-radius:14px; font-weight:700; }
+
+  .status{
+    text-align:center; font-size:0.76rem; color:var(--muted); font-style:italic;
+    padding:18px 12px 0;
+  }
+  .status.error{ color:var(--rose-dark); font-style:normal; font-weight:600; }
+
+  @media (min-width:720px){
+    h1{ font-size:1.8rem; }
+    main{ padding-top:18px; }
+  }
 </style>
 </head>
 <body>
-<h1>Unsere Woche zuhause</h1>
-<div class="sub">Jede*r trägt ein, was ansteht ✿</div>
-<div class="week-bar" id="week-label">–</div>
 
-<div class="planner">
-  <h2>Wochenplan · feste Blöcke</h2>
-  <div class="hint">Ziehen, um auf einen anderen Tag zu verschieben – bleibt so, bis ihr's wieder verschiebt.</div>
-  <div class="plan-grid" id="plan-grid"></div>
-  <div class="plan-add-row">
-    <input id="block-input" placeholder="Neuer Block (z.B. Sport)…">
-    <select id="block-day">
-      <option value="0">Mo</option><option value="1">Di</option><option value="2">Mi</option>
-      <option value="3">Do</option><option value="4">Fr</option><option value="5">Sa</option><option value="6">So</option>
-    </select>
-    <button onclick="addBlock()">+</button>
+<header>
+  <div class="title-row">
+    <h1>Unsere Woche zuhause</h1>
+    <span class="kw" id="kw">–</span>
   </div>
-</div>
+  <div class="sub">Jede*r trägt ein, was ansteht ✿</div>
+  <div class="filters" id="filters"></div>
+</header>
 
-<div class="col jonathan">
-  <h2>🐣 Jonathan</h2>
-  <ul id="list-jonathan"></ul>
-  <div class="add-row"><input id="input-jonathan" placeholder="Neue Aufgabe…"><select id="day-jonathan"><option value="">Diese Woche</option><option value="0">Mo</option><option value="1">Di</option><option value="2">Mi</option><option value="3">Do</option><option value="4">Fr</option><option value="5">Sa</option><option value="6">So</option></select><button onclick="addTask('jonathan')">+</button></div>
-</div>
-
-<div class="col katarina">
-  <h2>🌷 Katarina</h2>
-  <ul id="list-katarina"></ul>
-  <div class="add-row"><input id="input-katarina" placeholder="Neue Aufgabe…"><select id="day-katarina"><option value="">Diese Woche</option><option value="0">Mo</option><option value="1">Di</option><option value="2">Mi</option><option value="3">Do</option><option value="4">Fr</option><option value="5">Sa</option><option value="6">So</option></select><button onclick="addTask('katarina')">+</button></div>
-</div>
-
-<div class="col kids">
-  <h2>🌱 Kinder</h2>
-  <ul id="list-kids"></ul>
-  <div class="add-row"><input id="input-kids" placeholder="Neue Aufgabe für die Kinder…"><select id="day-kids"><option value="">Diese Woche</option><option value="0">Mo</option><option value="1">Di</option><option value="2">Mi</option><option value="3">Do</option><option value="4">Fr</option><option value="5">Sa</option><option value="6">So</option></select><button onclick="addTask('kids')">+</button></div>
-</div>
-
+<main id="main"></main>
 <div class="status" id="status">Lädt…</div>
 
+<button class="fab" id="fab">＋ Aufgabe</button>
+
+<div class="scrim" id="scrim"></div>
+<section class="sheet" id="sheet" role="dialog" aria-modal="true" aria-labelledby="sheet-title">
+  <div class="sheet-grab"></div>
+  <h2 id="sheet-title">Neue Aufgabe</h2>
+
+  <div class="field">
+    <label for="f-text">Was ist zu tun?</label>
+    <input class="text-input" id="f-text" placeholder="z.B. Müll raus" autocomplete="off">
+  </div>
+
+  <div class="field">
+    <label>Wer?</label>
+    <div class="chips" id="f-who"></div>
+  </div>
+
+  <div class="field">
+    <label>Wann?</label>
+    <div class="chips" id="f-when"></div>
+  </div>
+
+  <div class="field">
+    <label for="f-time">Uhrzeit <span style="text-transform:none;letter-spacing:0;font-weight:400">(optional – sortiert das Board chronologisch)</span></label>
+    <div class="row-2">
+      <input class="time-input" id="f-time" type="time" step="300">
+      <button class="btn-ghost" id="f-time-clear" type="button" style="flex:0 0 auto">Ohne Zeit</button>
+    </div>
+  </div>
+
+  <div class="field">
+    <button class="toggle" id="f-highlight" aria-pressed="false" type="button">
+      <span>Hervorheben<span class="hint">Erscheint als schwarzer Balken auf dem Board</span></span>
+      <span class="switch"></span>
+    </button>
+    <button class="toggle" id="f-repeat" aria-pressed="false" type="button">
+      <span>Jede Woche wiederholen<span class="hint" id="f-repeat-hint">Braucht einen festen Tag</span></span>
+      <span class="switch"></span>
+    </button>
+  </div>
+
+  <div class="sheet-actions">
+    <button class="btn-ghost" id="f-cancel" type="button">Abbrechen</button>
+    <button class="btn btn-primary" id="f-save" type="button">Eintragen</button>
+  </div>
+  <button class="btn-danger" id="f-delete" type="button" hidden>Löschen</button>
+  <button class="btn-danger" id="f-stop-repeat" type="button" hidden>Wiederholung beenden</button>
+</section>
+
 <script>
-const EMOJI = { jonathan: ["🐣","🐉"], katarina: ["🌷","🌹"], kids: ["🌱","🌸"] };
-const DAY_NAMES = ["Mo","Di","Mi","Do","Fr","Sa","So"];
+"use strict";
 
-function dayOptionsHtml(selected) {
-  let html = `<option value="" ${selected === null ? "selected" : ""}>–</option>`;
-  DAY_NAMES.forEach((name, idx) => {
-    html += `<option value="${idx}" ${selected === idx ? "selected" : ""}>${name}</option>`;
-  });
-  return html;
+const DAYS_SHOWN = 14;          // planning horizon on this page
+const BOARD_DAYS = 3;           // what the e-ink board actually shows
+const WEEKDAY = ["Mo","Di","Mi","Do","Fr","Sa","So"];
+const OWNER_LABEL = { jonathan:"Jonathan", katarina:"Katarina", kids:"Kinder", alle:"Alle" };
+
+let state = null;
+let whoFilter = "all";
+let draft = null;   // the compose sheet's working copy
+
+/* ---------- date helpers (string-based, no timezone surprises) ---------- */
+function iso(d){
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
 }
-let recurringSet = { jonathan: new Set(), katarina: new Set() };
+function parseIso(s){ const [y,m,d] = s.split("-").map(Number); return new Date(y, m-1, d); }
+function addDays(s, n){ const d = parseIso(s); d.setDate(d.getDate()+n); return iso(d); }
+function weekdayIdx(s){ return (parseIso(s).getDay() + 6) % 7; }   // 0 = Monday
+function ddmm(s){ const d = parseIso(s); return `${String(d.getDate()).padStart(2,"0")}.${String(d.getMonth()+1).padStart(2,"0")}.`; }
+function dayTitle(s){
+  const diff = Math.round((parseIso(s) - parseIso(state.today)) / 86400000);
+  if (diff === 0) return "Heute";
+  if (diff === 1) return "Morgen";
+  if (diff === 2) return "Übermorgen";
+  return WEEKDAY[weekdayIdx(s)];
+}
+function isoWeekOf(s){
+  const d = parseIso(s);
+  const t = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  t.setDate(t.getDate() + 3 - ((t.getDay() + 6) % 7));
+  const first = new Date(t.getFullYear(), 0, 4);
+  return 1 + Math.round(((t - first) / 86400000 - 3 + ((first.getDay() + 6) % 7)) / 7);
+}
 
-async function api(path, options) {
+/* ---------- api ---------- */
+async function api(path, options){
   const res = await fetch(`/api/haushalt${path}`, {
-    headers: {'Content-Type': 'application/json'},
+    headers: { "Content-Type": "application/json" },
     ...options,
   });
-  if (!res.ok) throw new Error(await res.text());
+  if (!res.ok){
+    let detail = `HTTP ${res.status}`;
+    try { const body = await res.json(); if (body.detail) detail = body.detail; } catch (_) {}
+    throw new Error(detail);
+  }
   return res.json();
 }
 
-function updateRecurringSet(recurring) {
-  recurringSet.jonathan = new Set(recurring?.jonathan || []);
-  recurringSet.katarina = new Set(recurring?.katarina || []);
+function setStatus(text, isError){
+  const el = document.getElementById("status");
+  el.textContent = text;
+  el.classList.toggle("error", !!isError);
 }
 
-async function loadAll() {
-  if (dragBlockId) return;
+async function load(){
   try {
-    const [week, blockData] = await Promise.all([
-      api('/state'),
-      api('/blocks'),
-    ]);
-    document.getElementById('status').textContent = 'Aktuell';
-    render(week);
-    renderPlanner(blockData.blocks || []);
-  } catch (e) {
-    document.getElementById('status').textContent = 'Konnte Board nicht laden – Server erreichbar?';
+    state = await api("/state");
+    render();
+    setStatus("Aktuell");
+  } catch (e){
+    setStatus(`Konnte nicht laden: ${e.message}`, true);
   }
 }
 
-function render(week) {
-  document.getElementById('week-label').textContent = week.label;
-  updateRecurringSet(week.recurring);
-  ['jonathan','katarina','kids'].forEach(col => renderColumn(col, week[col] || []));
+async function mutate(promise){
+  try {
+    state = await promise;
+    render();
+    setStatus("Gespeichert");
+  } catch (e){
+    setStatus(e.message, true);
+  }
 }
 
-function renderColumn(col, tasks) {
-  const ul = document.getElementById(`list-${col}`);
-  ul.innerHTML = '';
-  const emojis = EMOJI[col];
-  tasks.forEach((t, idx) => {
-    const li = document.createElement('li');
-    li.className = t.done ? 'done' : '';
-    const emoji = t.done ? emojis[1] : emojis[0];
-    const starHtml = col !== 'kids'
-      ? `<button class="star ${recurringSet[col]?.has(t.text) ? 'active' : ''}" title="wiederkehrend">★</button>`
-      : '';
-    const day = (t.day === undefined) ? null : t.day;
-    li.innerHTML = `<span class="emoji">${emoji}</span><span class="txt">${t.text}</span>${starHtml}<select class="day-badge">${dayOptionsHtml(day)}</select><button class="del">✕</button>`;
-    li.querySelector('.emoji').onclick = () => toggle(col, idx);
-    li.querySelector('.txt').onclick = () => toggle(col, idx);
-    li.querySelector('.del').onclick = () => del(col, idx);
-    li.querySelector('.day-badge').onchange = (e) => setTaskDay(col, idx, e.target.value);
-    const starBtn = li.querySelector('.star');
-    if (starBtn) starBtn.onclick = () => toggleRecurring(col, idx);
-    ul.appendChild(li);
+/* ---------- render ---------- */
+function render(){
+  document.getElementById("kw").textContent = state.week_label;
+  renderFilters();
+
+  const main = document.getElementById("main");
+  main.innerHTML = "";
+
+  const visible = t => whoFilter === "all" || t.person === whoFilter;
+  const byDate = new Map();
+  const undated = [];
+  for (const task of state.tasks){
+    if (!visible(task)) continue;
+    if (task.date){
+      if (!byDate.has(task.date)) byDate.set(task.date, []);
+      byDate.get(task.date).push(task);
+    } else {
+      undated.push(task);
+    }
+  }
+
+  const thisWeek = isoWeekOf(state.today);
+  let lastWeek = null;
+  let weekIndex = -1;
+  for (let i = 0; i < DAYS_SHOWN; i++){
+    const dateStr = addDays(state.today, i);
+    const week = isoWeekOf(dateStr);
+    if (week !== lastWeek){
+      lastWeek = week;
+      weekIndex++;
+      const head = document.createElement("div");
+      head.className = "week-head";
+      head.textContent = weekIndex === 0 ? "Diese Woche"
+                       : weekIndex === 1 ? "Nächste Woche"
+                       : `KW ${week}`;
+      main.appendChild(head);
+    }
+    main.appendChild(dayCard(dateStr, i, byDate.get(dateStr) || []));
+  }
+
+  const head = document.createElement("div");
+  head.className = "week-head";
+  head.textContent = "Ohne festen Tag";
+  main.appendChild(head);
+  main.appendChild(undatedCard(undated));
+}
+
+function renderFilters(){
+  const wrap = document.getElementById("filters");
+  wrap.innerHTML = "";
+  const options = [["all","Alle anzeigen"], ...state.owners.map(o => [o, OWNER_LABEL[o]])];
+  for (const [value, label] of options){
+    const b = document.createElement("button");
+    b.className = "filter";
+    b.textContent = label;
+    b.setAttribute("aria-pressed", String(whoFilter === value));
+    b.onclick = () => { whoFilter = value; render(); };
+    wrap.appendChild(b);
+  }
+}
+
+function dayCard(dateStr, index, tasks){
+  const card = document.createElement("section");
+  card.className = "day";
+  if (index === 0) card.classList.add("today");
+  if (!tasks.length) card.classList.add("empty");
+
+  const head = document.createElement("div");
+  head.className = "day-head";
+  head.innerHTML =
+    `<span class="day-name">${dayTitle(dateStr)}</span>` +
+    `<span class="day-date">${WEEKDAY[weekdayIdx(dateStr)]} · ${ddmm(dateStr)}</span>` +
+    `<span class="day-spacer"></span>` +
+    (index < BOARD_DAYS ? `<span class="on-board">Board</span>` : "");
+  const add = document.createElement("button");
+  add.className = "add-day";
+  add.textContent = "＋";
+  add.setAttribute("aria-label", `Aufgabe für ${dayTitle(dateStr)} hinzufügen`);
+  add.onclick = () => openSheet({ date: dateStr });
+  head.appendChild(add);
+  card.appendChild(head);
+
+  const body = document.createElement("div");
+  body.className = "day-body";
+  const list = document.createElement("div");
+  list.dataset.dropList = dateStr;
+  tasks.forEach(t => list.appendChild(itemRow(t)));
+  body.appendChild(list);
+  card.appendChild(body);
+  enableDrag(list);
+  return card;
+}
+
+function undatedCard(tasks){
+  const card = document.createElement("section");
+  card.className = "day";
+  const head = document.createElement("div");
+  head.className = "day-head";
+  head.innerHTML =
+    `<span class="day-name">Diese Woche</span>` +
+    `<span class="day-date">irgendwann</span>` +
+    `<span class="day-spacer"></span><span class="on-board">Board</span>`;
+  const add = document.createElement("button");
+  add.className = "add-day";
+  add.textContent = "＋";
+  add.setAttribute("aria-label", "Aufgabe ohne festen Tag hinzufügen");
+  add.onclick = () => openSheet({ date: null });
+  head.appendChild(add);
+  card.appendChild(head);
+
+  const body = document.createElement("div");
+  body.className = "day-body";
+  if (!tasks.length){
+    const note = document.createElement("div");
+    note.className = "empty-note";
+    note.textContent = "Nichts offen.";
+    body.appendChild(note);
+  } else {
+    const list = document.createElement("div");
+    list.dataset.dropList = "undated";
+    tasks.forEach(t => list.appendChild(itemRow(t)));
+    body.appendChild(list);
+    enableDrag(list);
+  }
+  card.appendChild(body);
+  return card;
+}
+
+function itemRow(task){
+  const row = document.createElement("div");
+  row.className = `item ${task.person}`;
+  if (task.done) row.classList.add("done");
+  if (task.highlight) row.classList.add("highlight");
+  row.dataset.id = task.id;
+
+  const check = document.createElement("button");
+  check.className = "check" + (task.done ? " on" : "");
+  check.textContent = "✓";
+  check.setAttribute("aria-label", task.done ? "Als offen markieren" : "Als erledigt markieren");
+  check.onclick = () => mutate(api(`/tasks/${task.id}/toggle`, { method:"POST" }));
+  row.appendChild(check);
+
+  const main = document.createElement("button");
+  main.className = "item-main";
+  const tags = [`<span class="tag who-${task.person}">${OWNER_LABEL[task.person]}</span>`];
+  if (task.time) tags.unshift(`<span class="tag time">${task.time}</span>`);
+  if (task.repeating) tags.push(`<span class="tag repeat">wöchentlich</span>`);
+  main.innerHTML =
+    `<div class="item-text">${escapeHtml(task.text)}</div>` +
+    `<div class="item-meta">${tags.join("")}</div>`;
+  main.onclick = () => openSheet(task);
+  row.appendChild(main);
+
+  // Only untimed items can be hand-sorted: anything with a time is placed
+  // chronologically on the board, so a manual position would be ignored.
+  if (!task.time){
+    const grip = document.createElement("button");
+    grip.className = "grip";
+    grip.setAttribute("aria-label", "Reihenfolge ändern");
+    grip.innerHTML = `<svg viewBox="0 0 16 16" fill="currentColor"><circle cx="5" cy="3" r="1.5"/><circle cx="11" cy="3" r="1.5"/><circle cx="5" cy="8" r="1.5"/><circle cx="11" cy="8" r="1.5"/><circle cx="5" cy="13" r="1.5"/><circle cx="11" cy="13" r="1.5"/></svg>`;
+    row.appendChild(grip);
+  }
+  return row;
+}
+
+function escapeHtml(s){
+  return s.replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+}
+
+/* ---------- drag & drop reordering (pointer events => works on touch) ---------- */
+function enableDrag(list){
+  list.querySelectorAll(".grip").forEach(grip => {
+    grip.addEventListener("pointerdown", ev => startDrag(ev, list, grip.closest(".item")));
   });
 }
 
-async function addTask(col) {
-  const input = document.getElementById(`input-${col}`);
-  const daySelect = document.getElementById(`day-${col}`);
-  const text = input.value.trim();
-  if (!text) return;
-  const dayValue = daySelect.value === '' ? null : parseInt(daySelect.value, 10);
-  const week = await api(`/${col}/tasks`, { method: 'POST', body: JSON.stringify({ text, day: dayValue }) });
-  input.value = '';
-  daySelect.value = '';
-  render(week);
-}
+function startDrag(ev, list, row){
+  ev.preventDefault();
+  row.classList.add("dragging");
+  row.setPointerCapture?.(ev.pointerId);
 
-async function setTaskDay(col, idx, value) {
-  const dayValue = value === '' ? null : parseInt(value, 10);
-  const week = await api(`/${col}/tasks/${idx}/day`, { method: 'POST', body: JSON.stringify({ day: dayValue }) });
-  render(week);
-}
-
-async function toggle(col, idx) {
-  const week = await api(`/${col}/tasks/${idx}/toggle`, { method: 'POST' });
-  render(week);
-}
-
-async function del(col, idx) {
-  const week = await api(`/${col}/tasks/${idx}`, { method: 'DELETE' });
-  render(week);
-}
-
-async function toggleRecurring(person, idx) {
-  const week = await api(`/${person}/tasks/${idx}/recurring`, { method: 'POST' });
-  render(week);
-}
-
-// --- Weekly planner (drag & drop blocks, pointer-events based so it works on touch) ---
-
-let ghostEl = null;
-let dragBlockId = null;
-let currentHoverDay = null;
-
-function renderPlanner(blocks) {
-  const grid = document.getElementById('plan-grid');
-  grid.innerHTML = '';
-  for (let day = 0; day < 7; day++) {
-    const col = document.createElement('div');
-    col.className = 'plan-day';
-    col.dataset.day = day;
-
-    const label = document.createElement('div');
-    label.className = 'plan-day-label';
-    label.textContent = DAY_NAMES[day];
-    col.appendChild(label);
-
-    blocks.filter(b => b.day === day).forEach(b => {
-      col.appendChild(buildBlockEl(b));
+  const onMove = e => {
+    const siblings = [...list.querySelectorAll(".item:not(.dragging)")];
+    const after = siblings.find(el => {
+      const box = el.getBoundingClientRect();
+      return e.clientY < box.top + box.height / 2;
     });
+    if (after) list.insertBefore(row, after);
+    else list.appendChild(row);
+  };
 
-    grid.appendChild(col);
+  const onUp = () => {
+    document.removeEventListener("pointermove", onMove);
+    document.removeEventListener("pointerup", onUp);
+    document.removeEventListener("pointercancel", onUp);
+    row.classList.remove("dragging");
+    const ids = [...list.querySelectorAll(".item")].map(el => el.dataset.id);
+    mutate(api("/tasks/reorder", { method:"POST", body: JSON.stringify({ ids }) }));
+  };
+
+  document.addEventListener("pointermove", onMove);
+  document.addEventListener("pointerup", onUp);
+  document.addEventListener("pointercancel", onUp);
+}
+
+/* ---------- compose sheet ---------- */
+const sheet = document.getElementById("sheet");
+const scrim = document.getElementById("scrim");
+
+function openSheet(task){
+  const editing = !!task.id;
+  draft = {
+    id: task.id || null,
+    text: task.text || "",
+    person: task.person || "jonathan",
+    date: task.date !== undefined ? task.date : null,
+    time: task.time || null,
+    highlight: !!task.highlight,
+    repeat: !!task.repeating,
+    repeating: !!task.repeating,
+    template_id: task.template_id || null,
+  };
+
+  document.getElementById("sheet-title").textContent = editing ? "Aufgabe bearbeiten" : "Neue Aufgabe";
+  document.getElementById("f-text").value = draft.text;
+  document.getElementById("f-time").value = draft.time || "";
+  document.getElementById("f-save").textContent = editing ? "Speichern" : "Eintragen";
+  document.getElementById("f-delete").hidden = !editing;
+  document.getElementById("f-stop-repeat").hidden = !(editing && draft.repeating);
+  // An existing occurrence belongs to a repeat rule; that rule is edited via
+  // "Wiederholung beenden" rather than by re-toggling it here.
+  document.getElementById("f-repeat").hidden = editing;
+
+  renderWho();
+  renderWhen();
+  syncToggles();
+
+  scrim.classList.add("open");
+  sheet.classList.add("open");
+  document.body.style.overflow = "hidden";   // stop the page scrolling behind the sheet
+  if (!editing) setTimeout(() => document.getElementById("f-text").focus(), 250);
+}
+
+function closeSheet(){
+  scrim.classList.remove("open");
+  sheet.classList.remove("open");
+  document.body.style.overflow = "";
+  draft = null;
+}
+
+function renderWho(){
+  const wrap = document.getElementById("f-who");
+  wrap.innerHTML = "";
+  for (const owner of state.owners){
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = `chip who-${owner}`;
+    b.textContent = OWNER_LABEL[owner];
+    b.setAttribute("aria-pressed", String(draft.person === owner));
+    b.onclick = () => { draft.person = owner; renderWho(); };
+    wrap.appendChild(b);
   }
 }
 
-function buildBlockEl(block) {
-  const el = document.createElement('div');
-  el.className = 'plan-block';
-  el.textContent = block.label;
-  el.dataset.blockId = block.id;
+function renderWhen(){
+  const wrap = document.getElementById("f-when");
+  wrap.innerHTML = "";
 
-  el.addEventListener('pointerdown', e => startDrag(e, block, el));
-  el.addEventListener('dblclick', async () => {
-    if (confirm(`"${block.label}" löschen?`)) {
-      const data = await api(`/blocks/${block.id}`, { method: 'DELETE' });
-      renderPlanner(data.blocks);
-    }
-  });
-  return el;
+  const quick = [];
+  for (let i = 0; i < 7; i++){
+    const d = addDays(state.today, i);
+    let label;
+    if (i === 0) label = "Heute";
+    else if (i === 1) label = "Morgen";
+    else label = `${WEEKDAY[weekdayIdx(d)]} ${ddmm(d)}`;
+    quick.push([d, label]);
+  }
+  quick.push([null, "Ohne festen Tag"]);
+
+  for (const [value, label] of quick){
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "chip";
+    b.textContent = label;
+    b.setAttribute("aria-pressed", String(draft.date === value));
+    b.onclick = () => { draft.date = value; renderWhen(); syncToggles(); };
+    wrap.appendChild(b);
+  }
+
+  // Anything further out than the quick chips: native date picker.
+  const picker = document.createElement("button");
+  picker.type = "button";
+  picker.className = "chip chip-date";
+  const beyond = draft.date && !quick.some(([v]) => v === draft.date);
+  picker.setAttribute("aria-pressed", String(!!beyond));
+  picker.textContent = beyond ? `📅 ${ddmm(draft.date)}` : "📅 Datum…";
+  const input = document.createElement("input");
+  input.type = "date";
+  input.min = state.today;
+  input.value = draft.date || "";
+  input.onchange = () => { if (input.value){ draft.date = input.value; renderWhen(); syncToggles(); } };
+  picker.appendChild(input);
+  wrap.appendChild(picker);
 }
 
-function startDrag(e, block, sourceEl) {
-  e.preventDefault();
-  dragBlockId = block.id;
-  sourceEl.classList.add('dragging');
+function syncToggles(){
+  const hl = document.getElementById("f-highlight");
+  hl.setAttribute("aria-pressed", String(draft.highlight));
 
-  ghostEl = document.createElement('div');
-  ghostEl.className = 'drag-ghost';
-  ghostEl.textContent = block.label;
-  document.body.appendChild(ghostEl);
-  moveGhost(e.clientX, e.clientY);
+  const rep = document.getElementById("f-repeat");
+  const canRepeat = !!draft.date;
+  if (!canRepeat) draft.repeat = false;
+  rep.setAttribute("aria-pressed", String(draft.repeat));
+  rep.style.opacity = canRepeat ? "1" : "0.5";
+  document.getElementById("f-repeat-hint").textContent = canRepeat
+    ? `Jeden ${WEEKDAY[weekdayIdx(draft.date)]}`
+    : "Braucht einen festen Tag";
+}
 
-  const onMove = (ev) => {
-    moveGhost(ev.clientX, ev.clientY);
-    highlightDropTarget(ev.clientX, ev.clientY);
+document.getElementById("f-highlight").onclick = () => { draft.highlight = !draft.highlight; syncToggles(); };
+document.getElementById("f-repeat").onclick = () => {
+  if (!draft.date) return;
+  draft.repeat = !draft.repeat;
+  syncToggles();
+};
+document.getElementById("f-time").onchange = e => { draft.time = e.target.value || null; };
+document.getElementById("f-time-clear").onclick = () => {
+  draft.time = null;
+  document.getElementById("f-time").value = "";
+};
+document.getElementById("f-cancel").onclick = closeSheet;
+scrim.onclick = closeSheet;
+
+document.getElementById("f-save").onclick = async () => {
+  const text = document.getElementById("f-text").value.trim();
+  if (!text){ document.getElementById("f-text").focus(); return; }
+  draft.text = text;
+  const body = {
+    text: draft.text,
+    person: draft.person,
+    date: draft.date,
+    time: draft.time,
+    highlight: draft.highlight,
   };
-  const onUp = async (ev) => {
-    document.removeEventListener('pointermove', onMove);
-    document.removeEventListener('pointerup', onUp);
-    sourceEl.classList.remove('dragging');
-    clearHighlight();
-    if (ghostEl) { ghostEl.remove(); ghostEl = null; }
+  if (draft.id){
+    await mutate(api(`/tasks/${draft.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ ...body, clear_date: draft.date === null, clear_time: draft.time === null }),
+    }));
+  } else {
+    await mutate(api("/tasks", {
+      method: "POST",
+      body: JSON.stringify({ ...body, repeat_weekly: draft.repeat }),
+    }));
+  }
+  closeSheet();
+};
 
-    const dayCol = elementFromPointDayCol(ev.clientX, ev.clientY);
-    if (dayCol && dragBlockId) {
-      const day = parseInt(dayCol.dataset.day, 10);
-      const data = await api(`/blocks/${dragBlockId}/move`, {
-        method: 'POST', body: JSON.stringify({ day }),
-      });
-      renderPlanner(data.blocks);
-    }
-    dragBlockId = null;
-  };
+document.getElementById("f-delete").onclick = async () => {
+  if (!confirm(`"${draft.text}" löschen?`)) return;
+  await mutate(api(`/tasks/${draft.id}`, { method:"DELETE" }));
+  closeSheet();
+};
 
-  document.addEventListener('pointermove', onMove);
-  document.addEventListener('pointerup', onUp);
-}
+document.getElementById("f-stop-repeat").onclick = async () => {
+  if (!confirm("Wiederholung beenden? Künftige Termine dieser Aufgabe werden entfernt.")) return;
+  await mutate(api(`/templates/${draft.template_id}`, { method:"DELETE" }));
+  closeSheet();
+};
 
-function moveGhost(x, y) {
-  if (ghostEl) { ghostEl.style.left = `${x}px`; ghostEl.style.top = `${y}px`; }
-}
-
-function elementFromPointDayCol(x, y) {
-  if (ghostEl) ghostEl.style.display = 'none';
-  const el = document.elementFromPoint(x, y);
-  if (ghostEl) ghostEl.style.display = '';
-  return el ? el.closest('.plan-day') : null;
-}
-
-function highlightDropTarget(x, y) {
-  const col = elementFromPointDayCol(x, y);
-  if (col === currentHoverDay) return;
-  clearHighlight();
-  if (col) { col.classList.add('dragover'); currentHoverDay = col; }
-}
-
-function clearHighlight() {
-  if (currentHoverDay) { currentHoverDay.classList.remove('dragover'); currentHoverDay = null; }
-}
-
-async function addBlock() {
-  const input = document.getElementById('block-input');
-  const daySelect = document.getElementById('block-day');
-  const label = input.value.trim();
-  if (!label) return;
-  const data = await api('/blocks', {
-    method: 'POST',
-    body: JSON.stringify({ label, day: parseInt(daySelect.value, 10) }),
-  });
-  input.value = '';
-  renderPlanner(data.blocks);
-}
-
-['jonathan','katarina','kids'].forEach(col => {
-  document.getElementById(`input-${col}`).addEventListener('keydown', e => {
-    if (e.key === 'Enter') addTask(col);
-  });
-});
-document.getElementById('block-input').addEventListener('keydown', e => {
-  if (e.key === 'Enter') addBlock();
+document.getElementById("fab").onclick = () => openSheet({ date: state.today });
+document.getElementById("f-text").addEventListener("keydown", e => {
+  if (e.key === "Enter") document.getElementById("f-save").click();
 });
 
-loadAll();
-setInterval(loadAll, 30000);
+/* ---------- boot ---------- */
+load();
+setInterval(() => { if (!draft) load(); }, 30000);
 </script>
 </body>
 </html>

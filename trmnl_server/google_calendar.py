@@ -68,9 +68,13 @@ def _calendar_ids() -> List[str]:
     return DEFAULT_CALENDAR_IDS
 
 
-async def get_events(start: date, days: int) -> Dict[int, List[str]]:
-    """Return {offset (0..days-1): ["09:00 Zahnarzt", ...]} for the `days`
-    calendar days starting at `start`. Empty dict if not configured or on error.
+async def get_events(start: date, days: int) -> Dict[int, List[dict]]:
+    """Return {offset (0..days-1): [{"time": "09:00"|None, "title": ...}, ...]}
+    for the `days` calendar days starting at `start`. Empty dict if not
+    configured or on error.
+
+    Time is kept as a separate field rather than baked into the title so the
+    board can sort calendar events and timed tasks into one chronological list.
     """
     import asyncio
 
@@ -87,7 +91,7 @@ def events_fingerprint(events: Dict[int, List[str]]) -> str:
     return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
 
 
-def _get_events_sync(start: date, days: int) -> Dict[int, List[str]]:
+def _get_events_sync(start: date, days: int) -> Dict[int, List[dict]]:
     creds = _load_credentials()
     if not creds:
         return {}
@@ -102,7 +106,7 @@ def _get_events_sync(start: date, days: int) -> Dict[int, List[str]]:
 
     range_start = datetime.combine(start, datetime.min.time(), tzinfo=timezone.utc)
     range_end = range_start + timedelta(days=days)
-    result: Dict[int, List[str]] = {i: [] for i in range(days)}
+    result: Dict[int, List[dict]] = {i: [] for i in range(days)}
 
     try:
         service = build("calendar", "v3", credentials=creds, cache_discovery=False)
@@ -133,12 +137,15 @@ def _get_events_sync(start: date, days: int) -> Dict[int, List[str]]:
                     else:
                         event_date = date.fromisoformat(start_raw)
                         day_idx = (event_date - start).days
-                        time_label = "ganztägig"
+                        time_label = None  # all-day event
                 except ValueError:
                     continue
                 if 0 <= day_idx < days:
                     title = event.get("summary", "(ohne Titel)")
-                    result[day_idx].append(f"{time_label} {title}")
+                    result[day_idx].append({"time": time_label, "title": title})
+
+        for items in result.values():
+            items.sort(key=lambda e: (1 if e["time"] else 0, e["time"] or ""))
     except Exception as exc:  # noqa: BLE001
         logger.warning("Failed to fetch Google Calendar events: %s", exc)
         return {i: [] for i in range(days)}
