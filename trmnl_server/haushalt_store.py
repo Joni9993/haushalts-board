@@ -217,7 +217,7 @@ def _materialize(data: Dict[str, Any], today: Optional[date] = None) -> bool:
         if isinstance(weekday, int) and 0 <= weekday <= 6:
             changed = _materialize_dated_template(data, template, today, horizon) or changed
         elif weekday is None:
-            changed = _materialize_undated_template(data, template, today, horizon) or changed
+            changed = _materialize_undated_template(data, template, today) or changed
 
     return changed
 
@@ -259,10 +259,19 @@ def _materialize_dated_template(data: Dict[str, Any], template: Dict[str, Any], 
     return changed
 
 
-def _materialize_undated_template(data: Dict[str, Any], template: Dict[str, Any], today: date, horizon: date) -> bool:
-    """A template with no fixed weekday: one undated ("Diese Woche") task per
-    ISO week, so it reappears every week without anyone retyping it — only
-    who's doing it needs reassigning.
+def _materialize_undated_template(data: Dict[str, Any], template: Dict[str, Any], today: date) -> bool:
+    """A template with no fixed weekday: one undated ("Diese Woche") task for
+    the CURRENT week only, so it reappears every week without anyone
+    retyping it — only who's doing it needs reassigning.
+
+    Unlike dated templates, this deliberately does NOT pre-fill the whole
+    HORIZON_DAYS window: a dated occurrence gets its own date/day-card, so
+    several future ones sitting around is fine and even useful for planning
+    ahead. An undated occurrence has no date to distinguish it by — the phone
+    page has exactly one "Diese Woche" bucket, not one per week — so
+    pre-creating next week's and the week after's would just pile up next to
+    this week's as visually identical duplicates. The next week's occurrence
+    is materialized once that week actually starts.
 
     Tracks which week keys were already materialized explicitly (rather than
     checking whether a task for that week currently exists), so deleting this
@@ -270,20 +279,9 @@ def _materialize_undated_template(data: Dict[str, Any], template: Dict[str, Any]
     """
     changed = False
     weeks_done = set(template.get("materialized_weeks") or [])
+    current = week_key(today)
 
-    week_keys: List[str] = []
-    seen = set()
-    cursor = today
-    while cursor <= horizon:
-        key = week_key(cursor)
-        if key not in seen:
-            seen.add(key)
-            week_keys.append(key)
-        cursor += timedelta(days=1)
-
-    for key in week_keys:
-        if key in weeks_done:
-            continue
+    if current not in weeks_done:
         data["tasks"].append({
             "id": _new_id(),
             "text": template.get("text", ""),
@@ -292,10 +290,10 @@ def _materialize_undated_template(data: Dict[str, Any], template: Dict[str, Any]
             "time": template.get("time"),
             "done": False,
             "order": 0,
-            "week": key,
+            "week": current,
             "template_id": template["id"],
         })
-        weeks_done.add(key)
+        weeks_done.add(current)
         changed = True
 
     sorted_weeks = sorted(weeks_done)

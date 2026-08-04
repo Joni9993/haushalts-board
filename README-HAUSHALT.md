@@ -41,10 +41,15 @@ Aufgaben (Besitzer "Alle", falls niemand Bestimmtes zuständig ist).
   1-Bit-e-ink-Panel, ohne dass jemand das manuell einstellen müsste.
 - **Wöchentliche Wiederholung** ist eine Vorlage, entweder an einem Wochentag
   (konkretes Datum jede Woche) oder ohne festen Tag (taucht jede Woche neu in
-  "Diese Woche" auf). Konkrete Vorkommen werden 21 Tage im Voraus erzeugt,
-  damit jedes Vorkommen einen eigenen Erledigt-Status/Besitzer hat und
-  einzeln geändert oder gelöscht werden kann, ohne die Reihe zu beeinflussen –
-  z.B. die Person für diese Woche ändern, ohne die künftigen Wochen anzufassen.
+  "Diese Woche" auf). Bei festem Tag werden Vorkommen 21 Tage im Voraus erzeugt
+  (jedes auf seinem eigenen Datum, damit ihr auf der Handy-Seite auch die
+  nächsten Wochen schon seht). Ohne festen Tag wird bewusst nur das Vorkommen
+  der **laufenden** Woche erzeugt – "Diese Woche" ist auf der Handy-Seite ein
+  einziger Topf ohne Wochen-Unterteilung, mehrere im Voraus angelegte Vorkommen
+  würden dort optisch als exakte Duplikate nebeneinander auftauchen. Jedes
+  Vorkommen hat einen eigenen Erledigt-Status/Besitzer und lässt sich einzeln
+  ändern oder löschen, ohne die Reihe zu beeinflussen – z.B. die Person für
+  diese Woche ändern, ohne künftige Wochen anzufassen.
 
 ### Warum v2: der Wochentag-Bug
 
@@ -225,9 +230,10 @@ euch außerdem den aktuellen Geräte-Status und Logs, falls etwas nicht ankommt)
   nach zwei Wochen automatisch aufgeräumt.
 - **Ohne festen Tag** gilt für die laufende Woche und verfällt beim Wochenwechsel
   – das ist die "muss diese Woche noch irgendwann passieren"-Liste.
-- **Wöchentliche Wiederholung** erzeugt Vorkommen 21 Tage im Voraus, mit oder
-  ohne festen Tag. Ein einzelnes Vorkommen lässt sich löschen, ohne die Reihe
-  zu beenden; "Wiederholung beenden" entfernt die Regel samt aller
+- **Wöchentliche Wiederholung** erzeugt bei festem Tag Vorkommen 21 Tage im
+  Voraus, ohne festen Tag nur das der laufenden Woche (siehe oben). Ein
+  einzelnes Vorkommen lässt sich löschen, ohne die Reihe zu beenden;
+  "Wiederholung beenden" entfernt die Regel samt aller
   künftigen Vorkommen, vergangene bleiben stehen.
 - **Board-Bild:** Wird nach jeder Änderung sofort neu gerendert (siehe oben);
   das Gerät selbst holt sich das Bild in seinem eigenen Poll-Intervall ab (im
