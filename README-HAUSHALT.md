@@ -109,14 +109,17 @@ der Leiste "Diese Woche" darunter. Zeilen wechseln von oben nach unten
 automatisch zwischen normal und invertiert (schwarzer Balken) – reine
 Positions-Optik fürs 1-Bit-Display, keine Einstellung.
 
-Kalendertermine mit einer der drei Google-Kalender-Farben Blueberry (blau),
-Banana (gelb) oder Flamingo bekommen automatisch dasselbe Personen-Badge wie
-Aufgaben (blau→Jonathan, gelb→Katarina, Flamingo→Alle) – so seht ihr auf einen
-Blick, wessen Termin das ist, ohne dass jemand das Board-Datenmodell dafür
-extra pflegen muss. Termine ohne (passende) Farbe zeigen weiterhin nur die
-Raute ohne Badge. Falls ihr eure Farbwahl mal ändert, lässt sich die Zuordnung
-über `CALENDAR_COLOR_PERSON` im `docker-compose.yml` überschreiben (Format
-`colorId:person,...`, z.B. `9:jonathan,5:katarina,4:alle`).
+Kalendertermine bekommen automatisch dasselbe Personen-Badge wie Aufgaben,
+in zwei Schritten: Standardmäßig zählt, aus **welchem Konto** der Termin kommt
+– ein Termin aus Jonathans Kalender ist J, einer aus Katarinas ist K, ganz ohne
+dass ihr jeden einzelnen Termin einfärben müsst. Nur für echte Ausnahmen (z.B.
+ein gemeinsamer Termin, der zufällig in einem der beiden Kalender liegt) setzt
+ihr am Termin selbst eine Google-Kalender-Farbe, die das überschreibt –
+standardmäßig ist Flamingo als "Alle" hinterlegt. Beide Zuordnungen lassen
+sich überschreiben, ohne Code anzufassen: `CALENDAR_ACCOUNT_PERSON`
+(z.B. `default:jonathan,katarina:katarina`) fürs Konto, `CALENDAR_COLOR_PERSON`
+(z.B. `4:alle,9:jonathan,5:katarina`) für die Farb-Ausnahme, beide im
+`docker-compose.yml`.
 
 Die Handy-Seite plant weiter voraus als das Board: sie zeigt 14 Tage, gruppiert
 nach "Diese Woche" / "Nächste Woche", sodass ihr sonntags die kommende Woche

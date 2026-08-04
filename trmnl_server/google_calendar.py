@@ -18,7 +18,9 @@ distinct token tied to their own account.
 
 - var/google_token.json is the default/first account.
 - var/google_token_<label>.json adds another account; the label is free-form
-  (e.g. "katarina") and only used in log messages.
+  (e.g. "katarina") — besides log messages, it's also the key
+  DEFAULT_ACCOUNT_PERSON/CALENDAR_ACCOUNT_PERSON uses to attribute an
+  uncolored event to that person by default.
 
 Dropping a new token file into var/ (and restarting) is the entire "setup" —
 no extra environment variable enumerating accounts is needed.
@@ -48,37 +50,57 @@ TOKEN_PATH = Path(config.VAR_ROOT) / "google_token.json"
 # for that instead of trying to fold it into this list.
 DEFAULT_CALENDAR_IDS = ["primary"]
 
-# Google Calendar's per-event colorId -> person, so an event colored e.g.
-# "Blueberry" shows up on the board with that person's owner badge. IDs are
-# Google's fixed named palette (Colors: get API — 1 Lavender, 2 Sage,
-# 3 Grape, 4 Flamingo, 5 Banana, 6 Tangerine, 7 Peacock, 8 Graphite,
-# 9 Blueberry, 10 Basil, 11 Tomato), not something this app controls.
-# Default matches how this household actually color-codes events; override
-# via CALENDAR_COLOR_PERSON if that changes, format
-# "colorId:person,colorId:person", e.g. "9:jonathan,5:katarina,4:alle".
-# An event with no color, or a color not in this map, gets no owner badge —
-# the board falls back to showing it as a plain, unattributed event.
+# Who an event belongs to, resolved in two steps:
+#
+# 1. The account it came from is the default owner — var/google_token.json
+#    ("default") is Jonathan's own calendar, var/google_token_katarina.json
+#    ("katarina") is hers, so any event neither of them bothered to color
+#    still gets attributed correctly. This is what actually covers most
+#    events in practice: people don't manually color every single entry.
+# 2. An explicit Google Calendar event color overrides that default — this
+#    household only colors the *exceptions* that aren't a 1:1 match for
+#    "whichever calendar it's on", e.g. Flamingo for something that's
+#    jointly everyone's despite living in one person's calendar. IDs are
+#    Google's fixed named palette (Colors: get API — 1 Lavender, 2 Sage,
+#    3 Grape, 4 Flamingo, 5 Banana, 6 Tangerine, 7 Peacock, 8 Graphite,
+#    9 Blueberry, 10 Basil, 11 Tomato), not something this app controls.
+#
+# Both maps are overridable without touching code — CALENDAR_ACCOUNT_PERSON
+# and CALENDAR_COLOR_PERSON env vars, format "key:person,key:person".
+DEFAULT_ACCOUNT_PERSON = {
+    "default": "jonathan",
+    "katarina": "katarina",
+}
+
 DEFAULT_COLOR_PERSON = {
-    "9": "jonathan",  # Blueberry (blau)
-    "5": "katarina",  # Banana (gelb)
     "4": "alle",       # Flamingo (gemeinsam)
+    "9": "jonathan",  # Blueberry (blau) — only matters if used outside his own calendar
+    "5": "katarina",  # Banana (gelb) — only matters if used outside her own calendar
 }
 
 
-def _color_person_map() -> Dict[str, str]:
+def _parse_person_map(env_var: str, default: Dict[str, str]) -> Dict[str, str]:
     import os
 
-    raw = os.environ.get("CALENDAR_COLOR_PERSON")
+    raw = os.environ.get(env_var)
     if not raw:
-        return DEFAULT_COLOR_PERSON
+        return default
     mapping: Dict[str, str] = {}
     for pair in raw.split(","):
         if ":" not in pair:
             continue
-        color_id, person = (part.strip() for part in pair.split(":", 1))
-        if color_id and person:
-            mapping[color_id] = person
+        key, person = (part.strip() for part in pair.split(":", 1))
+        if key and person:
+            mapping[key] = person
     return mapping
+
+
+def _color_person_map() -> Dict[str, str]:
+    return _parse_person_map("CALENDAR_COLOR_PERSON", DEFAULT_COLOR_PERSON)
+
+
+def _account_person_map() -> Dict[str, str]:
+    return _parse_person_map("CALENDAR_ACCOUNT_PERSON", DEFAULT_ACCOUNT_PERSON)
 
 
 def _discover_accounts() -> List[Tuple[str, Path]]:
@@ -138,9 +160,9 @@ async def get_events(start: date, days: int) -> Dict[int, List[dict]]:
 
     Time is kept as a separate field rather than baked into the title so the
     board can sort calendar events and timed tasks into one chronological
-    list. "person" comes from the event's Google Calendar color (see
-    _color_person_map) and is None if the event has no color or an
-    unmapped one.
+    list. "person" is the event's Google Calendar color if it has one mapped
+    (_color_person_map), else whichever account's calendar it came from
+    (_account_person_map); only None if neither resolves.
     """
     import asyncio
 
@@ -211,6 +233,8 @@ def _fetch_account_events(
                     title = event.get("summary", "(ohne Titel)")
                     color_id = event.get("colorId")
                     person = _color_person_map().get(color_id) if color_id else None
+                    if person is None:
+                        person = _account_person_map().get(label)
                     result[day_idx].append({"time": time_label, "title": title, "person": person})
     except Exception as exc:  # noqa: BLE001
         logger.warning("Failed to fetch Google Calendar events for %s: %s", label, exc)

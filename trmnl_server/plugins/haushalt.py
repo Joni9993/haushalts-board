@@ -254,18 +254,14 @@ class HaushaltPlugin(PluginBase):
         return box_h
 
     def _draw_event_row(self, draw, x, y, max_width, row, item_font, badge_font, bottom_limit, inverted) -> Optional[int]:
-        r = 6
         content_x = x + ROW_PAD_X
         person = row.get("person")
-        # Calendar events carry a person only when their Google Calendar
-        # color maps to one (see google_calendar._color_person_map) — shown
-        # as the same owner badge tasks use, right after the diamond marker
-        # that marks this row as a calendar entry rather than a task.
-        if person:
-            badge_x = content_x + 2 * r + 8
-            text_x = badge_x + BADGE_SIZE + BADGE_GAP
-        else:
-            text_x = content_x + 2 * r + 8
+        # Calendar events get the same owner badge a task has whenever a
+        # person resolves (own account by default, explicit color as an
+        # override — see google_calendar._get_events_sync); no separate
+        # "this is a calendar entry" marker is needed since the badge alone
+        # already identifies who it belongs to.
+        text_x = content_x + BADGE_SIZE + BADGE_GAP if person else content_x
         avail = max_width - 2 * ROW_PAD_X - (text_x - content_x)
         lines = self._wrap(self._with_time(row), item_font, avail)
         content_h = max(BADGE_SIZE, self._text_block_height(lines, item_font))
@@ -276,10 +272,8 @@ class HaushaltPlugin(PluginBase):
             draw.rectangle([x, y, x + max_width, y + box_h], fill=INK)
         content_y = y + ROW_PAD
         ink = 255 if inverted else INK
-        cx, cy = content_x + r, content_y + BADGE_SIZE / 2
-        draw.polygon([(cx, cy - r), (cx + r, cy), (cx, cy + r), (cx - r, cy)], outline=ink, width=2)
         if person:
-            self._draw_badge(draw, badge_x, content_y, person, False, badge_font, inverted)
+            self._draw_badge(draw, content_x, content_y, person, False, badge_font, inverted)
         self._draw_lines(draw, text_x, content_y, lines, item_font, fill=ink)
         return box_h
 
