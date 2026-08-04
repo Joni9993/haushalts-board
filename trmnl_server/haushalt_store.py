@@ -18,10 +18,13 @@ Schema v2 (migrated automatically from v1 on first load):
   black-bar look is no longer an opt-in flag; it alternates automatically
   by row position (see plugins/haushalt.py), so it's purely a rendering
   choice with nothing to store here.
-- Repeating tasks live as ``templates`` anchored to a weekday. Concrete
-  instances are materialized forward into a rolling horizon, so each
-  occurrence has its own done-state and can be edited or deleted
-  individually without affecting the rest.
+- Repeating tasks live as ``templates``, either anchored to a weekday (a
+  concrete date each week) or undated (reappears in "Diese Woche" every
+  week, for chores that just need doing sometime that week, not on a
+  specific day). Concrete instances are materialized forward into a rolling
+  horizon, so each occurrence has its own done-state/owner and can be
+  edited or deleted individually without affecting the rest — e.g.
+  reassigning who's doing it this week doesn't touch future weeks.
 """
 
 from __future__ import annotations
@@ -201,10 +204,9 @@ def _migrate_v1(old: Dict[str, Any]) -> Dict[str, Any]:
 def _materialize(data: Dict[str, Any], today: Optional[date] = None) -> bool:
     """Create concrete task instances for repeating templates.
 
-    Only ever moves forward: each template remembers how far it has been
-    materialized, so deleting a single occurrence doesn't make it come back,
-    and a long gap between runs doesn't backfill dates that already passed.
-    Returns True if anything was added.
+    Only ever moves forward, so deleting a single occurrence doesn't make it
+    come back, and a long gap between runs doesn't backfill dates/weeks that
+    already passed. Returns True if anything was added.
     """
     today = today or date.today()
     horizon = today + timedelta(days=HORIZON_DAYS)
@@ -212,37 +214,94 @@ def _materialize(data: Dict[str, Any], today: Optional[date] = None) -> bool:
 
     for template in data.get("templates", []):
         weekday = template.get("weekday")
-        if not isinstance(weekday, int) or not (0 <= weekday <= 6):
-            continue
+        if isinstance(weekday, int) and 0 <= weekday <= 6:
+            changed = _materialize_dated_template(data, template, today, horizon) or changed
+        elif weekday is None:
+            changed = _materialize_undated_template(data, template, today, horizon) or changed
 
-        raw_until = template.get("materialized_until")
-        try:
-            start = date.fromisoformat(raw_until) + timedelta(days=1) if raw_until else today
-        except (TypeError, ValueError):
-            start = today
-        if start < today:
-            start = today
+    return changed
 
-        cursor = start
-        while cursor <= horizon:
-            if cursor.weekday() == weekday:
-                data["tasks"].append({
-                    "id": _new_id(),
-                    "text": template.get("text", ""),
-                    "person": template.get("person", "alle"),
-                    "date": cursor.isoformat(),
-                    "time": template.get("time"),
-                    "done": False,
-                    "order": 0,
-                    "week": None,
-                    "template_id": template["id"],
-                })
-                changed = True
-            cursor += timedelta(days=1)
 
-        if template.get("materialized_until") != horizon.isoformat():
-            template["materialized_until"] = horizon.isoformat()
+def _materialize_dated_template(data: Dict[str, Any], template: Dict[str, Any], today: date, horizon: date) -> bool:
+    """A template anchored to a weekday: one concrete-dated task per occurrence."""
+    changed = False
+    weekday = template["weekday"]
+
+    raw_until = template.get("materialized_until")
+    try:
+        start = date.fromisoformat(raw_until) + timedelta(days=1) if raw_until else today
+    except (TypeError, ValueError):
+        start = today
+    if start < today:
+        start = today
+
+    cursor = start
+    while cursor <= horizon:
+        if cursor.weekday() == weekday:
+            data["tasks"].append({
+                "id": _new_id(),
+                "text": template.get("text", ""),
+                "person": template.get("person", "alle"),
+                "date": cursor.isoformat(),
+                "time": template.get("time"),
+                "done": False,
+                "order": 0,
+                "week": None,
+                "template_id": template["id"],
+            })
             changed = True
+        cursor += timedelta(days=1)
+
+    if template.get("materialized_until") != horizon.isoformat():
+        template["materialized_until"] = horizon.isoformat()
+        changed = True
+
+    return changed
+
+
+def _materialize_undated_template(data: Dict[str, Any], template: Dict[str, Any], today: date, horizon: date) -> bool:
+    """A template with no fixed weekday: one undated ("Diese Woche") task per
+    ISO week, so it reappears every week without anyone retyping it — only
+    who's doing it needs reassigning.
+
+    Tracks which week keys were already materialized explicitly (rather than
+    checking whether a task for that week currently exists), so deleting this
+    week's occurrence doesn't just bring it right back on the next refresh.
+    """
+    changed = False
+    weeks_done = set(template.get("materialized_weeks") or [])
+
+    week_keys: List[str] = []
+    seen = set()
+    cursor = today
+    while cursor <= horizon:
+        key = week_key(cursor)
+        if key not in seen:
+            seen.add(key)
+            week_keys.append(key)
+        cursor += timedelta(days=1)
+
+    for key in week_keys:
+        if key in weeks_done:
+            continue
+        data["tasks"].append({
+            "id": _new_id(),
+            "text": template.get("text", ""),
+            "person": template.get("person", "alle"),
+            "date": None,
+            "time": template.get("time"),
+            "done": False,
+            "order": 0,
+            "week": key,
+            "template_id": template["id"],
+        })
+        weeks_done.add(key)
+        changed = True
+
+    sorted_weeks = sorted(weeks_done)
+    if sorted_weeks != (template.get("materialized_weeks") or []):
+        template["materialized_weeks"] = sorted_weeks
+        changed = True
 
     return changed
 
@@ -399,6 +458,20 @@ async def add_task(
             }
             data.setdefault("templates", []).append(template)
             template_id = template["id"]
+        elif repeat_weekly:
+            # No fixed day: reappears in "Diese Woche" every week instead of
+            # a specific date. _materialize_undated_template creates this
+            # week's occurrence immediately since materialized_weeks starts empty.
+            template = {
+                "id": _new_id(),
+                "text": text,
+                "person": person,
+                "weekday": None,
+                "time": time_value,
+                "materialized_weeks": [],
+            }
+            data.setdefault("templates", []).append(template)
+            template_id = template["id"]
         else:
             data["tasks"].append({
                 "id": _new_id(),
@@ -486,12 +559,21 @@ async def stop_repeating(template_id: str) -> Dict[str, Any]:
     """Delete a repeat rule and its future occurrences, keeping past ones."""
     async with _LOCK:
         data = _load_raw()
-        today_iso = date.today().isoformat()
+        today = date.today()
+        today_iso = today.isoformat()
+        current_week = week_key(today)
         data["templates"] = [t for t in data.get("templates", []) if t["id"] != template_id]
-        data["tasks"] = [
-            t for t in data["tasks"]
-            if not (t.get("template_id") == template_id and (t.get("date") or "") >= today_iso)
-        ]
+
+        def is_future_occurrence(t: Dict[str, Any]) -> bool:
+            if t.get("template_id") != template_id:
+                return False
+            if t.get("date"):
+                return t["date"] >= today_iso
+            # Undated occurrences belong to a week instead of a date; keep
+            # past weeks (already happened), drop the current/future ones.
+            return (t.get("week") or "") >= current_week
+
+        data["tasks"] = [t for t in data["tasks"] if not is_future_occurrence(t)]
         _refresh(data)
         _save_raw(data)
         return _state_payload(data)

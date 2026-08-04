@@ -297,7 +297,7 @@
 
   <div class="field">
     <button class="toggle" id="f-repeat" aria-pressed="false" type="button">
-      <span>Jede Woche wiederholen<span class="hint" id="f-repeat-hint">Braucht einen festen Tag</span></span>
+      <span>Jede Woche wiederholen<span class="hint" id="f-repeat-hint">Jede Woche neu, ohne festen Tag</span></span>
       <span class="switch"></span>
     </button>
   </div>
@@ -690,17 +690,13 @@ function renderWhen(){
 
 function syncToggles(){
   const rep = document.getElementById("f-repeat");
-  const canRepeat = !!draft.date;
-  if (!canRepeat) draft.repeat = false;
   rep.setAttribute("aria-pressed", String(draft.repeat));
-  rep.style.opacity = canRepeat ? "1" : "0.5";
-  document.getElementById("f-repeat-hint").textContent = canRepeat
+  document.getElementById("f-repeat-hint").textContent = draft.date
     ? `Jeden ${WEEKDAY[weekdayIdx(draft.date)]}`
-    : "Braucht einen festen Tag";
+    : "Jede Woche neu, ohne festen Tag";
 }
 
 document.getElementById("f-repeat").onclick = () => {
-  if (!draft.date) return;
   draft.repeat = !draft.repeat;
   syncToggles();
 };

@@ -103,11 +103,6 @@ async def add_task(payload: NewTask):
     _check_person(payload.person)
     _check_date(payload.date)
     _check_time(payload.time)
-    if payload.repeat_weekly and not payload.date:
-        raise HTTPException(
-            status_code=400,
-            detail="Wöchentliche Wiederholung braucht einen Tag (der Wochentag ergibt sich daraus)",
-        )
 
     result = await haushalt_store.add_task(
         text=text,

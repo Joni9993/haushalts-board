@@ -39,10 +39,12 @@ Aufgaben (Besitzer "Alle", falls niemand Bestimmtes zuständig ist).
   Schrift) durch – unabhängig davon, ob es sich um eine Aufgabe oder einen
   Kalendertermin handelt. Das sorgt für klare Zeilengrenzen auf dem
   1-Bit-e-ink-Panel, ohne dass jemand das manuell einstellen müsste.
-- **Wöchentliche Wiederholung** ist eine Vorlage, die an einem Wochentag hängt.
-  Konkrete Vorkommen werden 21 Tage im Voraus erzeugt, damit jedes Vorkommen
-  einen eigenen Erledigt-Status hat und einzeln geändert oder gelöscht werden
-  kann, ohne die Reihe zu beeinflussen.
+- **Wöchentliche Wiederholung** ist eine Vorlage, entweder an einem Wochentag
+  (konkretes Datum jede Woche) oder ohne festen Tag (taucht jede Woche neu in
+  "Diese Woche" auf). Konkrete Vorkommen werden 21 Tage im Voraus erzeugt,
+  damit jedes Vorkommen einen eigenen Erledigt-Status/Besitzer hat und
+  einzeln geändert oder gelöscht werden kann, ohne die Reihe zu beeinflussen –
+  z.B. die Person für diese Woche ändern, ohne die künftigen Wochen anzufassen.
 
 ### Warum v2: der Wochentag-Bug
 
@@ -103,7 +105,18 @@ Tag weiter. Drei breite Spalten lesen sich auf dem kleinen 800×480-Panel deutli
 besser als sieben gequetschte. Pro Tag stehen dort die eingeplanten Aufgaben
 (mit Kürzel wer: J/K/k/A) und – falls Google Kalender verbunden ist – die Termine
 des Tages, gemeinsam nach Uhrzeit sortiert. Aufgaben ohne festen Tag laufen in
-der Leiste "Diese Woche" darunter.
+der Leiste "Diese Woche" darunter. Zeilen wechseln von oben nach unten
+automatisch zwischen normal und invertiert (schwarzer Balken) – reine
+Positions-Optik fürs 1-Bit-Display, keine Einstellung.
+
+Kalendertermine mit einer der drei Google-Kalender-Farben Blueberry (blau),
+Banana (gelb) oder Flamingo bekommen automatisch dasselbe Personen-Badge wie
+Aufgaben (blau→Jonathan, gelb→Katarina, Flamingo→Alle) – so seht ihr auf einen
+Blick, wessen Termin das ist, ohne dass jemand das Board-Datenmodell dafür
+extra pflegen muss. Termine ohne (passende) Farbe zeigen weiterhin nur die
+Raute ohne Badge. Falls ihr eure Farbwahl mal ändert, lässt sich die Zuordnung
+über `CALENDAR_COLOR_PERSON` im `docker-compose.yml` überschreiben (Format
+`colorId:person,...`, z.B. `9:jonathan,5:katarina,4:alle`).
 
 Die Handy-Seite plant weiter voraus als das Board: sie zeigt 14 Tage, gruppiert
 nach "Diese Woche" / "Nächste Woche", sodass ihr sonntags die kommende Woche
@@ -165,8 +178,13 @@ Bottom-Sheet:
 - **Wann?** Schnell-Chips für Heute, Morgen und die nächsten Wochentage, dazu
   "Ohne festen Tag" und ein Kalender-Datepicker für alles weiter Entfernte
 - **Uhrzeit** optional – setzt den Eintrag chronologisch aufs Board
-- **Jede Woche wiederholen** – braucht einen festen Tag, wiederholt sich dann an
-  dessen Wochentag
+- **Jede Woche wiederholen** – mit festem Tag wiederholt sich die Aufgabe an
+  dessen Wochentag; **ohne** festen Tag (bei "Ohne festen Tag" gewählt) taucht
+  sie stattdessen jede Woche neu in "Diese Woche" auf – praktisch für Dinge,
+  die wöchentlich anfallen, aber egal an welchem Tag ("Bad putzen", "Blumen
+  gießen"). Jede Wochen-Instanz ist ein eigener Eintrag: ihr müsst die
+  Aufgabe nicht neu eintippen, nur bei Bedarf die Person umverteilen oder
+  einzelne Wochen abhaken/löschen, ohne die Wiederholung zu beenden
 
 Tippen auf eine Aufgabe öffnet dasselbe Sheet zum Bearbeiten (inkl. Löschen und
 "Wiederholung beenden"). Die Checkbox hakt ab, der Anfasser rechts sortiert per
@@ -204,9 +222,10 @@ euch außerdem den aktuellen Geräte-Status und Logs, falls etwas nicht ankommt)
   nach zwei Wochen automatisch aufgeräumt.
 - **Ohne festen Tag** gilt für die laufende Woche und verfällt beim Wochenwechsel
   – das ist die "muss diese Woche noch irgendwann passieren"-Liste.
-- **Wöchentliche Wiederholung** erzeugt Vorkommen 21 Tage im Voraus. Ein einzelnes
-  Vorkommen lässt sich löschen, ohne die Reihe zu beenden; "Wiederholung beenden"
-  entfernt die Regel samt aller künftigen Vorkommen, vergangene bleiben stehen.
+- **Wöchentliche Wiederholung** erzeugt Vorkommen 21 Tage im Voraus, mit oder
+  ohne festen Tag. Ein einzelnes Vorkommen lässt sich löschen, ohne die Reihe
+  zu beenden; "Wiederholung beenden" entfernt die Regel samt aller
+  künftigen Vorkommen, vergangene bleiben stehen.
 - **Board-Bild:** Wird nach jeder Änderung sofort neu gerendert (siehe oben);
   das Gerät selbst holt sich das Bild in seinem eigenen Poll-Intervall ab (im
   Firmware-Setup einstellbar, z.B. alle 15–30 Min – kürzer kostet mehr Akku).

@@ -48,6 +48,38 @@ TOKEN_PATH = Path(config.VAR_ROOT) / "google_token.json"
 # for that instead of trying to fold it into this list.
 DEFAULT_CALENDAR_IDS = ["primary"]
 
+# Google Calendar's per-event colorId -> person, so an event colored e.g.
+# "Blueberry" shows up on the board with that person's owner badge. IDs are
+# Google's fixed named palette (Colors: get API — 1 Lavender, 2 Sage,
+# 3 Grape, 4 Flamingo, 5 Banana, 6 Tangerine, 7 Peacock, 8 Graphite,
+# 9 Blueberry, 10 Basil, 11 Tomato), not something this app controls.
+# Default matches how this household actually color-codes events; override
+# via CALENDAR_COLOR_PERSON if that changes, format
+# "colorId:person,colorId:person", e.g. "9:jonathan,5:katarina,4:alle".
+# An event with no color, or a color not in this map, gets no owner badge —
+# the board falls back to showing it as a plain, unattributed event.
+DEFAULT_COLOR_PERSON = {
+    "9": "jonathan",  # Blueberry (blau)
+    "5": "katarina",  # Banana (gelb)
+    "4": "alle",       # Flamingo (gemeinsam)
+}
+
+
+def _color_person_map() -> Dict[str, str]:
+    import os
+
+    raw = os.environ.get("CALENDAR_COLOR_PERSON")
+    if not raw:
+        return DEFAULT_COLOR_PERSON
+    mapping: Dict[str, str] = {}
+    for pair in raw.split(","):
+        if ":" not in pair:
+            continue
+        color_id, person = (part.strip() for part in pair.split(":", 1))
+        if color_id and person:
+            mapping[color_id] = person
+    return mapping
+
 
 def _discover_accounts() -> List[Tuple[str, Path]]:
     """Every configured Google account: the default token plus any
@@ -100,12 +132,15 @@ def _calendar_ids_for(label: str) -> List[str]:
 
 
 async def get_events(start: date, days: int) -> Dict[int, List[dict]]:
-    """Return {offset (0..days-1): [{"time": "09:00"|None, "title": ...}, ...]}
-    for the `days` calendar days starting at `start`, merged across every
-    configured account. Empty dict if nothing is configured.
+    """Return {offset (0..days-1): [{"time": "09:00"|None, "title": ..., "person":
+    "jonathan"|None}, ...]} for the `days` calendar days starting at `start`,
+    merged across every configured account. Empty dict if nothing is configured.
 
     Time is kept as a separate field rather than baked into the title so the
-    board can sort calendar events and timed tasks into one chronological list.
+    board can sort calendar events and timed tasks into one chronological
+    list. "person" comes from the event's Google Calendar color (see
+    _color_person_map) and is None if the event has no color or an
+    unmapped one.
     """
     import asyncio
 
@@ -174,7 +209,9 @@ def _fetch_account_events(
                     continue
                 if 0 <= day_idx < days:
                     title = event.get("summary", "(ohne Titel)")
-                    result[day_idx].append({"time": time_label, "title": title})
+                    color_id = event.get("colorId")
+                    person = _color_person_map().get(color_id) if color_id else None
+                    result[day_idx].append({"time": time_label, "title": title, "person": person})
     except Exception as exc:  # noqa: BLE001
         logger.warning("Failed to fetch Google Calendar events for %s: %s", label, exc)
         return None

@@ -7,7 +7,11 @@ than seven cramped ones.
 Per day, household tasks and Google Calendar events are merged into a single
 list and ordered the way a calendar app presents a day: untimed items first
 (in the manual order set by dragging on the phone page), then everything with
-a time, chronologically — tasks and calendar entries interleaved.
+a time, chronologically — tasks and calendar entries interleaved. A calendar
+event gets the same owner badge a task has if its Google Calendar color maps
+to a person (google_calendar._color_person_map) — this household color-codes
+events per person, so the badge reuses that instead of needing its own
+per-event ownership field.
 
 Visual style follows e-ink UI conventions (confirmed against TRMNL's own
 framework docs, since this is a TRMNL fork): sharp corners over rounded
@@ -58,8 +62,12 @@ FOOTER_TOP = FOOTER_RULE_Y + 14
 FOOTER_BOTTOM = 468
 
 RULE_THICK = 3
-LINE_GAP = 5  # extra vertical space between wrapped lines within one row
-ROW_PAD = 4   # top/bottom padding inside every row's box, inverted or not
+LINE_GAP = 5   # extra vertical space between wrapped lines within one row
+ROW_PAD = 4    # top/bottom padding inside every row's box, inverted or not
+ROW_PAD_X = 8  # left/right padding for a row's content — without this, an
+               # inverted (black-bar) row's icon sits flush against its own
+               # edge instead of just against the column edge like a plain
+               # row's does, which reads as cramped
 
 INK = 0
 
@@ -141,6 +149,7 @@ class HaushaltPlugin(PluginBase):
                 "kind": "event",
                 "text": event["title"],
                 "time": event.get("time"),
+                "person": event.get("person"),
                 "order": 0,
             })
         rows.sort(key=lambda r: (1 if r["time"] else 0, r["time"] or "", r["order"]))
@@ -217,7 +226,7 @@ class HaushaltPlugin(PluginBase):
             if row["kind"] == "task":
                 height = self._draw_task_row(draw, inner_x, y, inner_w, row, item_font, badge_font, bottom_limit, inverted)
             else:
-                height = self._draw_event_row(draw, inner_x, y, inner_w, row, item_font, bottom_limit, inverted)
+                height = self._draw_event_row(draw, inner_x, y, inner_w, row, item_font, badge_font, bottom_limit, inverted)
             if height is None:
                 break
             y += height + 8
@@ -225,11 +234,12 @@ class HaushaltPlugin(PluginBase):
 
         remaining = len(rows) - shown
         if remaining > 0 and y + item_font.size <= bottom_limit:
-            draw.text((inner_x, y), f"+{remaining} mehr", fill=INK, font=item_font)
+            draw.text((inner_x + ROW_PAD_X, y), f"+{remaining} mehr", fill=INK, font=item_font)
 
     def _draw_task_row(self, draw, x, y, max_width, row, item_font, badge_font, bottom_limit, inverted) -> Optional[int]:
-        text_x = x + BADGE_SIZE + BADGE_GAP
-        avail = max_width - BADGE_SIZE - BADGE_GAP
+        content_x = x + ROW_PAD_X
+        text_x = content_x + BADGE_SIZE + BADGE_GAP
+        avail = max_width - 2 * ROW_PAD_X - BADGE_SIZE - BADGE_GAP
         lines = self._wrap(self._with_time(row), item_font, avail)
         content_h = max(BADGE_SIZE, self._text_block_height(lines, item_font))
         box_h = content_h + 2 * ROW_PAD
@@ -239,14 +249,25 @@ class HaushaltPlugin(PluginBase):
             draw.rectangle([x, y, x + max_width, y + box_h], fill=INK)
         content_y = y + ROW_PAD
         ink = 255 if inverted else INK
-        self._draw_badge(draw, x, content_y, row["person"], row["done"], badge_font, inverted)
+        self._draw_badge(draw, content_x, content_y, row["person"], row["done"], badge_font, inverted)
         self._draw_lines(draw, text_x, content_y, lines, item_font, fill=ink, strike=row["done"])
         return box_h
 
-    def _draw_event_row(self, draw, x, y, max_width, row, item_font, bottom_limit, inverted) -> Optional[int]:
+    def _draw_event_row(self, draw, x, y, max_width, row, item_font, badge_font, bottom_limit, inverted) -> Optional[int]:
         r = 6
-        text_x = x + 2 * r + 8
-        lines = self._wrap(self._with_time(row), item_font, max_width - 2 * r - 8)
+        content_x = x + ROW_PAD_X
+        person = row.get("person")
+        # Calendar events carry a person only when their Google Calendar
+        # color maps to one (see google_calendar._color_person_map) — shown
+        # as the same owner badge tasks use, right after the diamond marker
+        # that marks this row as a calendar entry rather than a task.
+        if person:
+            badge_x = content_x + 2 * r + 8
+            text_x = badge_x + BADGE_SIZE + BADGE_GAP
+        else:
+            text_x = content_x + 2 * r + 8
+        avail = max_width - 2 * ROW_PAD_X - (text_x - content_x)
+        lines = self._wrap(self._with_time(row), item_font, avail)
         content_h = max(BADGE_SIZE, self._text_block_height(lines, item_font))
         box_h = content_h + 2 * ROW_PAD
         if y + box_h > bottom_limit:
@@ -255,8 +276,10 @@ class HaushaltPlugin(PluginBase):
             draw.rectangle([x, y, x + max_width, y + box_h], fill=INK)
         content_y = y + ROW_PAD
         ink = 255 if inverted else INK
-        cx, cy = x + r, content_y + BADGE_SIZE / 2
+        cx, cy = content_x + r, content_y + BADGE_SIZE / 2
         draw.polygon([(cx, cy - r), (cx + r, cy), (cx, cy + r), (cx - r, cy)], outline=ink, width=2)
+        if person:
+            self._draw_badge(draw, badge_x, content_y, person, False, badge_font, inverted)
         self._draw_lines(draw, text_x, content_y, lines, item_font, fill=ink)
         return box_h
 
