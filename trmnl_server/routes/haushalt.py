@@ -19,10 +19,11 @@ from datetime import date
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from .. import haushalt_store
+from .. import config, haushalt_store
 from ..services import plugins as plugin_service
 
 router = APIRouter(prefix="/api/haushalt", tags=["haushalt"])
+logger = config.logger
 
 _TIME_RE = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
 
@@ -86,8 +87,10 @@ async def _trigger_board_refresh() -> None:
         await plugin_service.process_plugin_output(schedule, force=True)
     except Exception:
         # Rendering is best-effort here; the API response to the phone should
-        # never fail just because the e-ink refresh hiccuped.
-        pass
+        # never fail just because the e-ink refresh hiccuped. Still log it,
+        # since a silently swallowed failure here previously masked a real
+        # rotation bug (board vanishing from the device's playlist).
+        logger.exception("Board refresh failed after a task change")
 
 
 @router.get("/state")

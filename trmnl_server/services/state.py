@@ -882,41 +882,49 @@ def set_primary_rotation_assets(
         png_entries = master.setdefault('png_entries', [])
         hashes = master.setdefault('hashes', [])
         meta_list = master.setdefault('meta', [])
-        had_entries = bool(bmp_entries)
-        auto_fill_enabled = _selected_matches_all(master)
 
-        previous_id = None
-        if had_entries and meta_list:
-            previous_id = meta_list[0].get('id')
-        disallowed_ids = {entry.get('id') for entry in meta_list if entry.get('id')}
-        if previous_id:
-            disallowed_ids.discard(previous_id)
-        entry_id = previous_id or preferred_id
-        entry_id = _collision_safe_rotation_id(entry_id, disallowed_ids)
-        meta_entry = _build_rotation_meta(
-            plugin_name,
-            assets.monochrome_path,
-            assets.grayscale_path,
-            entry_id,
-            content_hash,
-            display_name
-        )
+        # Find this plugin's own slot by name rather than assuming index 0 —
+        # whichever plugin happens to complete first after a cold start claims
+        # index 0 via append_rotation_assets, so a primary plugin that blindly
+        # overwrote index 0 would silently inherit a stale foreign id/plugin
+        # mismatch whenever it wasn't first to finish.
+        own_index = None
+        for idx, entry in enumerate(meta_list):
+            if entry.get('plugin') == plugin_name:
+                own_index = idx
+                break
 
-        if bmp_entries:
-            bmp_entries[0] = bmp_bytes
-            png_entries[0] = png_bytes
-            hashes[0] = content_hash
-            if meta_list:
-                meta_list[0] = meta_entry
-            else:
-                meta_list.append(meta_entry)
+        if own_index is not None:
+            entry_id = meta_list[own_index].get('id') or preferred_id
+            meta_entry = _build_rotation_meta(
+                plugin_name,
+                assets.monochrome_path,
+                assets.grayscale_path,
+                entry_id,
+                content_hash,
+                display_name
+            )
+            bmp_entries[own_index] = bmp_bytes
+            png_entries[own_index] = png_bytes
+            hashes[own_index] = content_hash
+            meta_list[own_index] = meta_entry
         else:
-            bmp_entries.append(bmp_bytes)
-            png_entries.append(png_bytes)
-            hashes.append(content_hash)
-            meta_list.append(meta_entry)
-
-        if not had_entries:
+            disallowed_ids = {entry.get('id') for entry in meta_list if entry.get('id')}
+            entry_id = _collision_safe_rotation_id(preferred_id, disallowed_ids)
+            meta_entry = _build_rotation_meta(
+                plugin_name,
+                assets.monochrome_path,
+                assets.grayscale_path,
+                entry_id,
+                content_hash,
+                display_name
+            )
+            # First-ever registration for this plugin: insert at the front so
+            # a primary plugin is featured first in the default rotation.
+            bmp_entries.insert(0, bmp_bytes)
+            png_entries.insert(0, png_bytes)
+            hashes.insert(0, content_hash)
+            meta_list.insert(0, meta_entry)
             master['version'] += 1
 
         # Only auto-fill if there's no existing playlist AND no persistent playlist was loaded
