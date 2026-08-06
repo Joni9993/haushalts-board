@@ -31,19 +31,28 @@ Text is word-wrapped rather than truncated with an ellipsis: every row is
 measured first (wrapped line count -> pixel height) and only drawn if it
 still fits before GRID_BOTTOM/FOOTER_BOTTOM, so a long task simply takes
 more vertical space instead of losing content.
+
+The footer is split into two panels: undated ("Diese Woche") tasks on the
+left, today's weather (see ../weather.py, Open-Meteo, no API key) on the
+right — a fridge board is exactly where "do I need a jacket today" belongs.
+Weather icons are hand-drawn vector shapes (fill-black-then-fill-white-inset
+for the cloud silhouette, to get a clean outline without the seam artifacts
+overlapping outlined ellipses would leave), consistent with the rest of the
+board's sharp/no-gray-fill style rather than a photographic icon set.
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
+import math
 import os
 from datetime import date, timedelta
 from typing import List, Optional
 
 from PIL import Image, ImageDraw, ImageFont
 
-from .. import google_calendar, haushalt_store
+from .. import google_calendar, haushalt_store, weather
 from ..utils import asset_path
 from .base import PluginBase, PluginOutput
 
@@ -56,10 +65,11 @@ GRID_TOP = 18
 HEADER_H = 58
 RULE_Y = GRID_TOP + HEADER_H
 BODY_TOP = RULE_Y + 12
-GRID_BOTTOM = 344
+GRID_BOTTOM = 312
 FOOTER_RULE_Y = GRID_BOTTOM + 12
 FOOTER_TOP = FOOTER_RULE_Y + 14
 FOOTER_BOTTOM = 468
+FOOTER_PAD_X = 14  # left inset for panel content, mirrors ROW_PAD_X's purpose
 
 RULE_THICK = 3
 LINE_GAP = 5   # extra vertical space between wrapped lines within one row
@@ -121,7 +131,9 @@ class HaushaltPlugin(PluginBase):
             for i, d in enumerate(dates)
         }
 
-        image = await asyncio.to_thread(self._render, dates, rows_by_date, undated)
+        weather_data = await weather.get_today()
+
+        image = await asyncio.to_thread(self._render, dates, rows_by_date, undated, weather_data)
         output = await asyncio.to_thread(self.save_assets, image, output_dir, self.BASENAME)
         logger.info(
             "Haushalt board rendered to %s and %s",
@@ -164,7 +176,7 @@ class HaushaltPlugin(PluginBase):
 
     # -- main render -----------------------------------------------------------
 
-    def _render(self, dates, rows_by_date, undated) -> Image.Image:
+    def _render(self, dates, rows_by_date, undated, weather_data) -> Image.Image:
         image = Image.new("L", CANVAS_SIZE, color=255)
         draw = ImageDraw.Draw(image)
 
@@ -189,7 +201,7 @@ class HaushaltPlugin(PluginBase):
             x = MARGIN + i * col_width
             draw.line([(x, GRID_TOP), (x, GRID_BOTTOM)], fill=INK, width=RULE_THICK)
 
-        self._draw_footer(draw, undated, footer_header_font, footer_item_font, badge_font)
+        self._draw_footer(draw, undated, weather_data, footer_header_font, footer_item_font, badge_font)
 
         return image
 
@@ -295,15 +307,23 @@ class HaushaltPlugin(PluginBase):
             text_fill = ink
         draw.text((x + BADGE_SIZE / 2, y + BADGE_SIZE / 2), letter, font=font, fill=text_fill, anchor="mm")
 
-    # -- undated-tasks footer ------------------------------------------
+    # -- footer: undated tasks (left) + weather (right) ----------------------
 
-    def _draw_footer(self, draw, undated, header_font, item_font, badge_font) -> None:
+    def _draw_footer(self, draw, undated, weather_data, header_font, item_font, badge_font) -> None:
         draw.line(
             [(MARGIN, FOOTER_RULE_Y), (CANVAS_SIZE[0] - MARGIN, FOOTER_RULE_Y)],
             fill=INK, width=RULE_THICK,
         )
 
-        x = MARGIN
+        half_width = (CANVAS_SIZE[0] - 2 * MARGIN) / 2
+        right_x0 = MARGIN + half_width
+        draw.line([(right_x0, FOOTER_RULE_Y), (right_x0, FOOTER_BOTTOM)], fill=INK, width=RULE_THICK)
+
+        self._draw_undated_panel(draw, MARGIN, half_width, undated, header_font, item_font, badge_font)
+        self._draw_weather_panel(draw, right_x0, half_width, weather_data, header_font, item_font)
+
+    def _draw_undated_panel(self, draw, x0, width, undated, header_font, item_font, badge_font) -> None:
+        x = x0
         y = FOOTER_TOP
         draw.text((x, y), "Diese Woche", font=header_font, fill=INK)
         y += header_font.size + 10
@@ -312,7 +332,7 @@ class HaushaltPlugin(PluginBase):
             draw.text((x, y), "–", font=item_font, fill=INK)
             return
 
-        right_limit = CANVAS_SIZE[0] - MARGIN
+        right_limit = x0 + width - FOOTER_PAD_X
         full_width = right_limit - x
         item_gap = 20
 
@@ -350,6 +370,111 @@ class HaushaltPlugin(PluginBase):
         remaining = len(undated) - shown
         if remaining > 0:
             draw.text((cx, cy), f"+{remaining} mehr", font=item_font, fill=INK)
+
+    def _draw_weather_panel(self, draw, x0, width, data, header_font, item_font) -> None:
+        x = x0 + FOOTER_PAD_X
+        y = FOOTER_TOP
+        draw.text((x, y), "Wetter heute", font=header_font, fill=INK)
+        y += header_font.size + 10
+
+        if not data:
+            draw.text((x, y), "–", font=item_font, fill=INK)
+            return
+
+        temp_font = self._font(36, "bold")
+        detail_font = self._font(13, "regular")
+
+        icon_size = 58
+        icon_cx = x + icon_size * 0.52
+        icon_cy = y + icon_size * 0.52
+        self._draw_weather_icon(draw, icon_cx, icon_cy, icon_size, data["category"])
+
+        text_x = x + icon_size + 20
+        temp_text = f"{data['temp_now']}°"
+        draw.text((text_x, y), temp_text, font=temp_font, fill=INK)
+        bbox = draw.textbbox((text_x, y), temp_text, font=temp_font)
+        draw.text((text_x, bbox[3] + 2), data["label"], font=detail_font, fill=INK)
+
+        detail_y = y + icon_size + 14
+        draw.text((x, detail_y), f"Min {data['temp_min']}° · Max {data['temp_max']}°", font=detail_font, fill=INK)
+        precip = data.get("precip_prob")
+        if precip is not None and precip >= 20:
+            draw.text((x, detail_y + detail_font.size + 6), f"{precip}% Regenwahrscheinlichkeit", font=detail_font, fill=INK)
+
+    # -- weather icons (vector, monochrome) -----------------------------------
+
+    @staticmethod
+    def _draw_cloud_blob(draw, cx, cy, size, fill) -> None:
+        w = size
+        h = size * 0.5
+        base_y = cy + h * 0.35
+        draw.ellipse([cx - w * 0.48, base_y - h * 1.05, cx - w * 0.02, base_y - h * 0.05], fill=fill)
+        draw.ellipse([cx - w * 0.18, base_y - h * 1.35, cx + w * 0.38, base_y - h * 0.15], fill=fill)
+        draw.ellipse([cx + w * 0.05, base_y - h * 0.95, cx + w * 0.5, base_y - h * 0.05], fill=fill)
+        draw.rounded_rectangle(
+            [cx - w * 0.46, base_y - h * 0.55, cx + w * 0.46, base_y + h * 0.25],
+            radius=h * 0.28, fill=fill,
+        )
+
+    @classmethod
+    def _draw_cloud(cls, draw, cx, cy, size) -> None:
+        # Filled black silhouette, then a smaller white copy on top: overlapping
+        # *outlined* ellipses would leave visible seams where they cross, but
+        # two solid fills give a clean single outline of consistent width.
+        cls._draw_cloud_blob(draw, cx, cy, size, INK)
+        cls._draw_cloud_blob(draw, cx, cy, size * 0.80, 255)
+
+    @staticmethod
+    def _draw_sun(draw, cx, cy, size) -> None:
+        r = size * 0.28
+        draw.ellipse([cx - r, cy - r, cx + r, cy + r], outline=INK, width=2)
+        for angle in range(0, 360, 45):
+            rad = math.radians(angle)
+            x1, y1 = cx + r * 1.35 * math.cos(rad), cy + r * 1.35 * math.sin(rad)
+            x2, y2 = cx + r * 1.85 * math.cos(rad), cy + r * 1.85 * math.sin(rad)
+            draw.line([x1, y1, x2, y2], fill=INK, width=2)
+
+    @classmethod
+    def _draw_weather_icon(cls, draw, cx, cy, size, category) -> None:
+        if category == "sun":
+            cls._draw_sun(draw, cx, cy, size)
+        elif category == "sun_cloud":
+            # Sun drawn first (full), cloud drawn on top second - the cloud's
+            # fill-black-then-fill-white technique cleanly clips whatever of
+            # the sun falls inside its silhouette, leaving only the rays that
+            # stick out above/right visible, like sun peeking from behind cloud.
+            cls._draw_sun(draw, cx + size * 0.14, cy - size * 0.22, size * 0.62)
+            cls._draw_cloud(draw, cx - size * 0.06, cy + size * 0.14, size * 0.88)
+        elif category == "cloud":
+            cls._draw_cloud(draw, cx, cy, size)
+        elif category == "fog":
+            widths = (0.7, 0.5, 0.62)
+            for i, wf in enumerate(widths):
+                yy = cy - size * 0.18 + i * size * 0.18
+                draw.line([cx - size * 0.5 * wf, yy, cx + size * 0.5 * wf, yy], fill=INK, width=3)
+        elif category in ("drizzle", "rain"):
+            cls._draw_cloud(draw, cx, cy - size * 0.1, size * 0.85)
+            n = 2 if category == "drizzle" else 3
+            start = -((n - 1) / 2)
+            for i in range(n):
+                lx = cx + (start + i) * size * 0.2
+                draw.line([lx, cy + size * 0.18, lx - size * 0.08, cy + size * 0.4], fill=INK, width=2)
+        elif category == "snow":
+            cls._draw_cloud(draw, cx, cy - size * 0.1, size * 0.85)
+            for i in range(3):
+                dx = cx + (-1 + i) * size * 0.2
+                dy = cy + size * 0.3
+                draw.line([dx - 4, dy, dx + 4, dy], fill=INK, width=2)
+                draw.line([dx, dy - 4, dx, dy + 4], fill=INK, width=2)
+                draw.line([dx - 3, dy - 3, dx + 3, dy + 3], fill=INK, width=1)
+                draw.line([dx - 3, dy + 3, dx + 3, dy - 3], fill=INK, width=1)
+        elif category == "storm":
+            cls._draw_cloud(draw, cx, cy - size * 0.12, size * 0.85)
+            bolt = [
+                (cx + 4, cy + size * 0.08), (cx - 6, cy + size * 0.3),
+                (cx + 1, cy + size * 0.3), (cx - 5, cy + size * 0.52),
+            ]
+            draw.line(bolt, fill=INK, width=3, joint="curve")
 
     # -- text wrapping helpers -------------------------------------------------
 

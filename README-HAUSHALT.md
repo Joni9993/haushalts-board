@@ -109,10 +109,18 @@ Das Board zeigt Heute / Morgen / Übermorgen und schiebt sich jede Nacht einen
 Tag weiter. Drei breite Spalten lesen sich auf dem kleinen 800×480-Panel deutlich
 besser als sieben gequetschte. Pro Tag stehen dort die eingeplanten Aufgaben
 (mit Kürzel wer: J/K/k/A) und – falls Google Kalender verbunden ist – die Termine
-des Tages, gemeinsam nach Uhrzeit sortiert. Aufgaben ohne festen Tag laufen in
-der Leiste "Diese Woche" darunter. Zeilen wechseln von oben nach unten
+des Tages, gemeinsam nach Uhrzeit sortiert. Zeilen wechseln von oben nach unten
 automatisch zwischen normal und invertiert (schwarzer Balken) – reine
 Positions-Optik fürs 1-Bit-Display, keine Einstellung.
+
+Unten ist der Platz zweigeteilt: links Aufgaben ohne festen Tag ("Diese
+Woche"), rechts das Wetter von heute (aktuelle Temperatur, Icon, Min/Max, bei
+≥20% auch die Regenwahrscheinlichkeit) – Quelle ist [Open-Meteo](https://open-meteo.com)
+(kostenlos, kein API-Key), Standardort ist 74626 Bretzfeld. Andere Adresse?
+`WEATHER_LAT`/`WEATHER_LON` im `docker-compose.yml` setzen (Koordinaten z.B.
+über die [Open-Meteo-Geocoding-Suche](https://open-meteo.com/en/docs/geocoding-api)
+ermitteln). Schlägt der Abruf mal fehl, bleibt die rechte Hälfte einfach leer
+("–") statt das ganze Board zu blockieren – wie beim Kalender.
 
 Kalendertermine bekommen automatisch dasselbe Personen-Badge wie Aufgaben,
 in zwei Schritten: Standardmäßig zählt, aus **welchem Konto** der Termin kommt
