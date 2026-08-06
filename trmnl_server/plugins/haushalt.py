@@ -88,6 +88,15 @@ BADGE_SIZE = 18
 BADGE_GAP = 6
 BADGE_LETTER = {"jonathan": "J", "katarina": "K", "kids": "k", "alle": "A"}
 
+# Waste categories get a shape+letter badge instead of a person's — same
+# visual grammar (badge carries the meaning, not a color the panel can't
+# show), but the shape varies instead of fill/outline, since these aren't a
+# done/not-done state.
+TRASH_BADGE_SIZE = 15
+TRASH_BADGE_GAP = 7
+TRASH_SHAPE = {"Bio": "circle", "Restmüll": "square", "Papier": "triangle", "Gelb": "diamond"}
+TRASH_LETTER = {"Bio": "B", "Restmüll": "R", "Papier": "P", "Gelb": "G"}
+
 WINDOW_DAYS = 3
 DAY_LABELS = ("Heute", "Morgen", "Übermorgen")
 WEEKDAY_SHORT = ("Mo", "Di", "Mi", "Do", "Fr", "Sa", "So")
@@ -431,15 +440,41 @@ class HaushaltPlugin(PluginBase):
             return
 
         detail_font = self._font(13, "regular")
-        line_h = detail_font.size + LINE_GAP
-        avail = x0 + width - FOOTER_PAD_X - x
+        badge_font = self._font(9, "bold")
+        row_h = max(TRASH_BADGE_SIZE, detail_font.size) + LINE_GAP
+        text_x = x + TRASH_BADGE_SIZE + TRASH_BADGE_GAP
+        avail = x0 + width - FOOTER_PAD_X - text_x
         today = date.today()
 
         for entry in pickups[:4]:
+            category = entry["category"]
             label = self._trash_day_label(entry["date"], today)
-            text = self._truncate(f"{label} {entry['category']}", detail_font, avail)
-            draw.text((x, y), text, font=detail_font, fill=INK)
-            y += line_h
+            text = self._truncate(f"{label} {category}", detail_font, avail)
+            badge_y = y + (detail_font.size - TRASH_BADGE_SIZE) / 2
+            self._draw_trash_badge(draw, x, badge_y, category)
+            draw.text((text_x, y), text, font=detail_font, fill=INK)
+            y += row_h
+
+    def _draw_trash_badge(self, draw, x, y, category: str) -> None:
+        shape = TRASH_SHAPE.get(category, "circle")
+        letter = TRASH_LETTER.get(category, "?")
+        size = TRASH_BADGE_SIZE
+        cx, cy = x + size / 2, y + size / 2
+        badge_font = self._font(9, "bold")
+        if shape == "circle":
+            draw.ellipse([x, y, x + size, y + size], outline=INK, width=2)
+        elif shape == "square":
+            draw.rectangle([x, y, x + size, y + size], outline=INK, width=2)
+        elif shape == "triangle":
+            r = size * 0.58
+            pts = [(cx, cy - r), (cx + r * 0.95, cy + r * 0.75), (cx - r * 0.95, cy + r * 0.75)]
+            draw.polygon(pts, outline=INK, width=2)
+            draw.text((cx, cy + size * 0.08), letter, font=badge_font, fill=INK, anchor="mm")
+            return
+        elif shape == "diamond":
+            r = size / 2
+            draw.polygon([(cx, cy - r), (cx + r, cy), (cx, cy + r), (cx - r, cy)], outline=INK, width=2)
+        draw.text((cx, cy), letter, font=badge_font, fill=INK, anchor="mm")
 
     @staticmethod
     def _trash_day_label(d: date, today: date) -> str:
