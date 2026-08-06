@@ -113,13 +113,29 @@ des Tages, gemeinsam nach Uhrzeit sortiert. Zeilen wechseln von oben nach unten
 automatisch zwischen normal und invertiert (schwarzer Balken) – reine
 Positions-Optik fürs 1-Bit-Display, keine Einstellung.
 
-Unten ist der Platz zweigeteilt: links Aufgaben ohne festen Tag ("Diese
-Woche"), rechts das Wetter von heute (aktuelle Temperatur, Icon, Min/Max, bei
-≥20% auch die Regenwahrscheinlichkeit) – Quelle ist [Open-Meteo](https://open-meteo.com)
-(kostenlos, kein API-Key), Standardort ist 74626 Bretzfeld. Andere Adresse?
-`WEATHER_LAT`/`WEATHER_LON` im `docker-compose.yml` setzen (Koordinaten z.B.
-über die [Open-Meteo-Geocoding-Suche](https://open-meteo.com/en/docs/geocoding-api)
-ermitteln). Schlägt der Abruf mal fehl, bleibt die rechte Hälfte einfach leer
+Unten ist der Platz dreigeteilt: links (halbe Breite) Aufgaben ohne festen
+Tag ("Diese Woche"), rechts zwei schmalere Spalten für Wetter und Müllabfuhr.
+
+**Wetter** (`trmnl_server/weather.py`): aktuelle Temperatur, Icon, Min/Max,
+bei ≥20% auch die Regenwahrscheinlichkeit – Quelle ist
+[Open-Meteo](https://open-meteo.com) (kostenlos, kein API-Key), Standardort
+ist 74626 Bretzfeld. Andere Adresse? `WEATHER_LAT`/`WEATHER_LON` im
+`docker-compose.yml` setzen (Koordinaten z.B. über die
+[Open-Meteo-Geocoding-Suche](https://open-meteo.com/en/docs/geocoding-api)
+ermitteln).
+
+**Müllabfuhr** (`trmnl_server/trash_calendar.py`): die jeweils nächste
+Abfuhr pro Tonne (Rest-/Bio-/Papiertonne, Gelber Sack) für 74626 Waldbach,
+z.B. "Morgen Bio". Anders als Wetter/Kalender **aktualisiert sich das nicht
+von selbst** – dafür gibt es keine API/kein iCal. Die Termine stehen als
+Klartext-Liste im Kopf der Datei und müssen **einmal im Dezember für das
+neue Jahr übertragen** werden – auf der
+["Termine Leerungen"-Seite der Abfallwirtschaft Hohenlohekreis](https://www.abfallwirtschaft-hohenlohekreis.de/infos-beratung/termine-leerungen)
+lassen sich die Termine fürs neue Jahr pro Adresse als Text exportieren.
+Andere Adresse/andere Abfuhrbezirke? Gleiche Datei anpassen.
+
+Schlägt ein Abruf mal fehl (Wetter) oder sind für das laufende Jahr keine
+Termine mehr hinterlegt (Müll), bleibt die jeweilige Spalte einfach leer
 ("–") statt das ganze Board zu blockieren – wie beim Kalender.
 
 Kalendertermine bekommen automatisch dasselbe Personen-Badge wie Aufgaben,

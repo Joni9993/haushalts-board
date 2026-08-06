@@ -32,13 +32,16 @@ measured first (wrapped line count -> pixel height) and only drawn if it
 still fits before GRID_BOTTOM/FOOTER_BOTTOM, so a long task simply takes
 more vertical space instead of losing content.
 
-The footer is split into two panels: undated ("Diese Woche") tasks on the
-left, today's weather (see ../weather.py, Open-Meteo, no API key) on the
-right — a fridge board is exactly where "do I need a jacket today" belongs.
-Weather icons are hand-drawn vector shapes (fill-black-then-fill-white-inset
-for the cloud silhouette, to get a clean outline without the seam artifacts
-overlapping outlined ellipses would leave), consistent with the rest of the
-board's sharp/no-gray-fill style rather than a photographic icon set.
+The footer is split into three panels: undated ("Diese Woche") tasks on the
+left (half the width), today's weather (see ../weather.py, Open-Meteo, no
+API key) and the next household waste-collection dates (see
+../trash_calendar.py — hardcoded, no public feed exists for this) sharing
+the right half. A fridge board is exactly where "do I need a jacket" and
+"which bin goes out tonight" belong. Weather icons are hand-drawn vector
+shapes (fill-black-then-fill-white-inset for the cloud silhouette, to get a
+clean outline without the seam artifacts overlapping outlined ellipses would
+leave), consistent with the rest of the board's sharp/no-gray-fill style
+rather than a photographic icon set.
 """
 
 from __future__ import annotations
@@ -52,7 +55,7 @@ from typing import List, Optional
 
 from PIL import Image, ImageDraw, ImageFont
 
-from .. import google_calendar, haushalt_store, weather
+from .. import google_calendar, haushalt_store, trash_calendar, weather
 from ..utils import asset_path
 from .base import PluginBase, PluginOutput
 
@@ -132,8 +135,11 @@ class HaushaltPlugin(PluginBase):
         }
 
         weather_data = await weather.get_today()
+        trash_data = trash_calendar.next_pickups(today)
 
-        image = await asyncio.to_thread(self._render, dates, rows_by_date, undated, weather_data)
+        image = await asyncio.to_thread(
+            self._render, dates, rows_by_date, undated, weather_data, trash_data
+        )
         output = await asyncio.to_thread(self.save_assets, image, output_dir, self.BASENAME)
         logger.info(
             "Haushalt board rendered to %s and %s",
@@ -176,7 +182,7 @@ class HaushaltPlugin(PluginBase):
 
     # -- main render -----------------------------------------------------------
 
-    def _render(self, dates, rows_by_date, undated, weather_data) -> Image.Image:
+    def _render(self, dates, rows_by_date, undated, weather_data, trash_data) -> Image.Image:
         image = Image.new("L", CANVAS_SIZE, color=255)
         draw = ImageDraw.Draw(image)
 
@@ -201,7 +207,10 @@ class HaushaltPlugin(PluginBase):
             x = MARGIN + i * col_width
             draw.line([(x, GRID_TOP), (x, GRID_BOTTOM)], fill=INK, width=RULE_THICK)
 
-        self._draw_footer(draw, undated, weather_data, footer_header_font, footer_item_font, badge_font)
+        self._draw_footer(
+            draw, undated, weather_data, trash_data,
+            footer_header_font, footer_item_font, badge_font,
+        )
 
         return image
 
@@ -307,20 +316,26 @@ class HaushaltPlugin(PluginBase):
             text_fill = ink
         draw.text((x + BADGE_SIZE / 2, y + BADGE_SIZE / 2), letter, font=font, fill=text_fill, anchor="mm")
 
-    # -- footer: undated tasks (left) + weather (right) ----------------------
+    # -- footer: undated tasks (half) + weather + trash (quarter each) -------
 
-    def _draw_footer(self, draw, undated, weather_data, header_font, item_font, badge_font) -> None:
+    def _draw_footer(self, draw, undated, weather_data, trash_data, header_font, item_font, badge_font) -> None:
         draw.line(
             [(MARGIN, FOOTER_RULE_Y), (CANVAS_SIZE[0] - MARGIN, FOOTER_RULE_Y)],
             fill=INK, width=RULE_THICK,
         )
 
-        half_width = (CANVAS_SIZE[0] - 2 * MARGIN) / 2
-        right_x0 = MARGIN + half_width
-        draw.line([(right_x0, FOOTER_RULE_Y), (right_x0, FOOTER_BOTTOM)], fill=INK, width=RULE_THICK)
+        total_width = CANVAS_SIZE[0] - 2 * MARGIN
+        half_width = total_width / 2
+        quarter_width = half_width / 2
+        weather_x0 = MARGIN + half_width
+        trash_x0 = weather_x0 + quarter_width
+
+        for x in (weather_x0, trash_x0):
+            draw.line([(x, FOOTER_RULE_Y), (x, FOOTER_BOTTOM)], fill=INK, width=RULE_THICK)
 
         self._draw_undated_panel(draw, MARGIN, half_width, undated, header_font, item_font, badge_font)
-        self._draw_weather_panel(draw, right_x0, half_width, weather_data, header_font, item_font)
+        self._draw_weather_panel(draw, weather_x0, quarter_width, weather_data, header_font, item_font)
+        self._draw_trash_panel(draw, trash_x0, quarter_width, trash_data, header_font, item_font)
 
     def _draw_undated_panel(self, draw, x0, width, undated, header_font, item_font, badge_font) -> None:
         x = x0
@@ -374,32 +389,74 @@ class HaushaltPlugin(PluginBase):
     def _draw_weather_panel(self, draw, x0, width, data, header_font, item_font) -> None:
         x = x0 + FOOTER_PAD_X
         y = FOOTER_TOP
-        draw.text((x, y), "Wetter heute", font=header_font, fill=INK)
+        draw.text((x, y), "Wetter", font=header_font, fill=INK)
         y += header_font.size + 10
 
         if not data:
             draw.text((x, y), "–", font=item_font, fill=INK)
             return
 
-        temp_font = self._font(36, "bold")
+        temp_font = self._font(30, "bold")
         detail_font = self._font(13, "regular")
 
-        icon_size = 58
+        icon_size = 46
         icon_cx = x + icon_size * 0.52
         icon_cy = y + icon_size * 0.52
         self._draw_weather_icon(draw, icon_cx, icon_cy, icon_size, data["category"])
 
-        text_x = x + icon_size + 20
+        text_x = x + icon_size + 14
         temp_text = f"{data['temp_now']}°"
         draw.text((text_x, y), temp_text, font=temp_font, fill=INK)
         bbox = draw.textbbox((text_x, y), temp_text, font=temp_font)
         draw.text((text_x, bbox[3] + 2), data["label"], font=detail_font, fill=INK)
 
-        detail_y = y + icon_size + 14
-        draw.text((x, detail_y), f"Min {data['temp_min']}° · Max {data['temp_max']}°", font=detail_font, fill=INK)
+        detail_y = y + icon_size + 12
+        draw.text((x, detail_y), f"Min {data['temp_min']}°", font=detail_font, fill=INK)
+        draw.text((x, detail_y + detail_font.size + 5), f"Max {data['temp_max']}°", font=detail_font, fill=INK)
         precip = data.get("precip_prob")
         if precip is not None and precip >= 20:
-            draw.text((x, detail_y + detail_font.size + 6), f"{precip}% Regenwahrscheinlichkeit", font=detail_font, fill=INK)
+            draw.text(
+                (x, detail_y + 2 * (detail_font.size + 5)),
+                f"{precip}% Regen", font=detail_font, fill=INK,
+            )
+
+    def _draw_trash_panel(self, draw, x0, width, pickups, header_font, item_font) -> None:
+        x = x0 + FOOTER_PAD_X
+        y = FOOTER_TOP
+        draw.text((x, y), "Müll", font=header_font, fill=INK)
+        y += header_font.size + 10
+
+        if not pickups:
+            draw.text((x, y), "–", font=item_font, fill=INK)
+            return
+
+        detail_font = self._font(13, "regular")
+        line_h = detail_font.size + LINE_GAP
+        avail = x0 + width - FOOTER_PAD_X - x
+        today = date.today()
+
+        for entry in pickups[:4]:
+            label = self._trash_day_label(entry["date"], today)
+            text = self._truncate(f"{label} {entry['category']}", detail_font, avail)
+            draw.text((x, y), text, font=detail_font, fill=INK)
+            y += line_h
+
+    @staticmethod
+    def _trash_day_label(d: date, today: date) -> str:
+        diff = (d - today).days
+        if diff == 0:
+            return "Heute"
+        if diff == 1:
+            return "Morgen"
+        return f"{WEEKDAY_SHORT[d.weekday()]} {d.day:02d}.{d.month:02d}."
+
+    @staticmethod
+    def _truncate(text: str, font, max_width: float) -> str:
+        if font.getlength(text) <= max_width:
+            return text
+        while text and font.getlength(text + "…") > max_width:
+            text = text[:-1]
+        return text + "…" if text else ""
 
     # -- weather icons (vector, monochrome) -----------------------------------
 
