@@ -62,6 +62,21 @@ from .base import PluginBase, PluginOutput
 logger = logging.getLogger(__name__)
 
 CANVAS_SIZE = (800, 480)
+
+# TRMNL's own writeup on their bitmap-safe font ("Introducing Typography")
+# says it plainly: consumer e-ink panels "couldn't handle font smoothing".
+# Anti-aliased text drawn at these small sizes (9-22px) then hard-thresholded
+# to 1-bit rounds each glyph's edges independently based on its exact
+# sub-pixel position, so two instances of the same letter in one word can end
+# up visibly different weights (confirmed: rendered "Wetter" at 15px, the
+# two 't's came out different thicknesses). Rendering the whole board at
+# SUPERSAMPLE-times the resolution and downscaling with LANCZOS before
+# quantizing averages that sub-pixel rounding out instead. See
+# _SupersampledDraw below — every _draw_* method keeps working in normal
+# 800x480 logical coordinates unchanged; only the wrapper knows it's
+# actually rasterizing onto a bigger canvas.
+SUPERSAMPLE = 3
+
 MARGIN = 24
 
 GRID_TOP = 18
@@ -94,8 +109,7 @@ BADGE_LETTER = {"jonathan": "J", "katarina": "K", "kids": "k", "alle": "A"}
 # done/not-done state.
 TRASH_BADGE_SIZE = 15
 TRASH_BADGE_GAP = 7
-TRASH_SHAPE = {"Bio": "circle", "Restmüll": "square", "Papier": "triangle", "Gelb": "diamond"}
-TRASH_LETTER = {"Bio": "B", "Restmüll": "R", "Papier": "P", "Gelb": "G"}
+TRASH_ICON = {"Bio": "leaf", "Restmüll": "bin", "Papier": "document", "Gelb": "bag"}
 
 WINDOW_DAYS = 3
 DAY_LABELS = ("Heute", "Morgen", "Übermorgen")
@@ -107,6 +121,67 @@ _FONT_FILES = {
     "regular": "SpaceGrotesk-Regular.ttf",
     "light": "SpaceGrotesk-Light.ttf",
 }
+
+
+class _SupersampledDraw:
+    """Wraps a real ImageDraw bound to a SUPERSAMPLE-times-larger canvas,
+    scaling every coordinate/width transparently so every _draw_* method in
+    this file keeps working in the board's normal 800x480 logical coordinate
+    space without modification. Fonts are reloaded at their requested size
+    times the scale for actual rasterization; textbbox() results are scaled
+    back down so callers keep getting logical-space measurements.
+    """
+
+    def __init__(self, image: Image.Image, scale: int):
+        self._draw = ImageDraw.Draw(image)
+        self._scale = scale
+        self._font_cache: dict[tuple[str, float], ImageFont.FreeTypeFont] = {}
+
+    def _scaled_font(self, font: ImageFont.FreeTypeFont) -> ImageFont.FreeTypeFont:
+        key = (font.path, font.size)
+        cached = self._font_cache.get(key)
+        if cached is None:
+            cached = ImageFont.truetype(font.path, round(font.size * self._scale))
+            self._font_cache[key] = cached
+        return cached
+
+    def _sxy(self, xy):
+        s = self._scale
+        if isinstance(xy[0], (int, float)):
+            return [v * s for v in xy]
+        return [(px * s, py * s) for px, py in xy]
+
+    def text(self, xy, text, font=None, fill=None, anchor=None, **kwargs) -> None:
+        x, y = xy
+        big_font = self._scaled_font(font) if font is not None else None
+        self._draw.text((x * self._scale, y * self._scale), text, font=big_font, fill=fill, anchor=anchor, **kwargs)
+
+    def textbbox(self, xy, text, font=None, anchor=None, **kwargs):
+        x, y = xy
+        big_font = self._scaled_font(font) if font is not None else None
+        left, top, right, bottom = self._draw.textbbox(
+            (x * self._scale, y * self._scale), text, font=big_font, anchor=anchor, **kwargs
+        )
+        s = self._scale
+        return (left / s, top / s, right / s, bottom / s)
+
+    def rectangle(self, xy, fill=None, outline=None, width=1) -> None:
+        self._draw.rectangle(self._sxy(xy), fill=fill, outline=outline, width=max(1, round(width * self._scale)))
+
+    def rounded_rectangle(self, xy, radius=0, fill=None, outline=None, width=1) -> None:
+        self._draw.rounded_rectangle(
+            self._sxy(xy), radius=radius * self._scale, fill=fill, outline=outline,
+            width=max(1, round(width * self._scale)),
+        )
+
+    def line(self, xy, fill=None, width=1, joint=None) -> None:
+        self._draw.line(self._sxy(xy), fill=fill, width=max(1, round(width * self._scale)), joint=joint)
+
+    def ellipse(self, xy, fill=None, outline=None, width=1) -> None:
+        self._draw.ellipse(self._sxy(xy), fill=fill, outline=outline, width=max(1, round(width * self._scale)))
+
+    def polygon(self, xy, fill=None, outline=None, width=1) -> None:
+        self._draw.polygon(self._sxy(xy), fill=fill, outline=outline, width=max(1, round(width * self._scale)))
 
 
 class HaushaltPlugin(PluginBase):
@@ -192,8 +267,9 @@ class HaushaltPlugin(PluginBase):
     # -- main render -----------------------------------------------------------
 
     def _render(self, dates, rows_by_date, undated, weather_data, trash_data) -> Image.Image:
-        image = Image.new("L", CANVAS_SIZE, color=255)
-        draw = ImageDraw.Draw(image)
+        big_size = (CANVAS_SIZE[0] * SUPERSAMPLE, CANVAS_SIZE[1] * SUPERSAMPLE)
+        image = Image.new("L", big_size, color=255)
+        draw = _SupersampledDraw(image, SUPERSAMPLE)
 
         header_label_font = self._font(22, "bold")
         header_date_font = self._font(13, "regular")
@@ -221,7 +297,7 @@ class HaushaltPlugin(PluginBase):
             footer_header_font, footer_item_font, badge_font,
         )
 
-        return image
+        return image.resize(CANVAS_SIZE, Image.LANCZOS)
 
     # -- day columns ---------------------------------------------------------
 
@@ -440,7 +516,6 @@ class HaushaltPlugin(PluginBase):
             return
 
         detail_font = self._font(13, "regular")
-        badge_font = self._font(9, "bold")
         row_h = max(TRASH_BADGE_SIZE, detail_font.size) + LINE_GAP
         text_x = x + TRASH_BADGE_SIZE + TRASH_BADGE_GAP
         avail = x0 + width - FOOTER_PAD_X - text_x
@@ -450,31 +525,93 @@ class HaushaltPlugin(PluginBase):
             category = entry["category"]
             label = self._trash_day_label(entry["date"], today)
             text = self._truncate(f"{label} {category}", detail_font, avail)
-            badge_y = y + (detail_font.size - TRASH_BADGE_SIZE) / 2
-            self._draw_trash_badge(draw, x, badge_y, category)
+            icon_y = y + (detail_font.size - TRASH_BADGE_SIZE) / 2
+            self._draw_trash_icon(draw, x, icon_y, TRASH_BADGE_SIZE, category)
             draw.text((text_x, y), text, font=detail_font, fill=INK)
             y += row_h
 
-    def _draw_trash_badge(self, draw, x, y, category: str) -> None:
-        shape = TRASH_SHAPE.get(category, "circle")
-        letter = TRASH_LETTER.get(category, "?")
-        size = TRASH_BADGE_SIZE
-        cx, cy = x + size / 2, y + size / 2
-        badge_font = self._font(9, "bold")
-        if shape == "circle":
-            draw.ellipse([x, y, x + size, y + size], outline=INK, width=2)
-        elif shape == "square":
-            draw.rectangle([x, y, x + size, y + size], outline=INK, width=2)
-        elif shape == "triangle":
-            r = size * 0.58
-            pts = [(cx, cy - r), (cx + r * 0.95, cy + r * 0.75), (cx - r * 0.95, cy + r * 0.75)]
-            draw.polygon(pts, outline=INK, width=2)
-            draw.text((cx, cy + size * 0.08), letter, font=badge_font, fill=INK, anchor="mm")
-            return
-        elif shape == "diamond":
-            r = size / 2
-            draw.polygon([(cx, cy - r), (cx + r, cy), (cx, cy + r), (cx - r, cy)], outline=INK, width=2)
-        draw.text((cx, cy), letter, font=badge_font, fill=INK, anchor="mm")
+    @classmethod
+    def _draw_trash_icon(cls, draw, x, y, size, category: str) -> None:
+        icon = TRASH_ICON.get(category)
+        if icon == "bin":
+            cls._draw_bin_icon(draw, x, y, size)
+        elif icon == "leaf":
+            cls._draw_leaf_icon(draw, x, y, size)
+        elif icon == "document":
+            cls._draw_document_icon(draw, x, y, size)
+        elif icon == "bag":
+            cls._draw_bag_icon(draw, x, y, size)
+
+    @staticmethod
+    def _draw_bin_icon(draw, x, y, size) -> None:
+        """Restmüll: wheelie-bin silhouette — lid + tapered body."""
+        lid_h = size * 0.22
+        draw.rectangle([x + size * 0.05, y, x + size * 0.95, y + lid_h], outline=INK, width=2)
+        body = [
+            (x + size * 0.15, y + lid_h), (x + size * 0.85, y + lid_h),
+            (x + size * 0.78, y + size), (x + size * 0.22, y + size),
+        ]
+        draw.polygon(body, outline=INK, width=2)
+
+    @staticmethod
+    def _draw_leaf_icon(draw, x, y, size) -> None:
+        """Bio: pointed-oval leaf (sampled curve — a handful of straight
+        segments reads as a kite, not a leaf) plus a center vein."""
+        cx = x + size / 2
+        top_y, bottom_y = y, y + size
+        n = 10
+        right_pts = []
+        for i in range(n + 1):
+            t = i / n
+            yy = top_y + t * size
+            w = (math.sin(t * math.pi) ** 0.8) * (size * 0.44)
+            right_pts.append((cx + w, yy))
+        left_pts = [(cx - (px - cx), py) for px, py in reversed(right_pts)]
+        draw.polygon(right_pts + left_pts, outline=INK, width=2)
+        draw.line([(cx, top_y), (cx, bottom_y)], fill=INK, width=2)
+
+    @staticmethod
+    def _draw_document_icon(draw, x, y, size) -> None:
+        """Papier: sheet with a folded top-right corner plus text lines."""
+        fold = size * 0.32
+        pts = [
+            (x, y), (x + size - fold, y), (x + size, y + fold),
+            (x + size, y + size), (x, y + size),
+        ]
+        draw.polygon(pts, outline=INK, width=2)
+        draw.line([(x + size - fold, y), (x + size - fold, y + fold), (x + size, y + fold)], fill=INK, width=2)
+        for i in range(2):
+            ly = y + size * 0.58 + i * size * 0.22
+            draw.line([(x + size * 0.2, ly), (x + size * 0.72, ly)], fill=INK, width=2)
+
+    @staticmethod
+    def _draw_bag_icon(draw, x, y, size) -> None:
+        """Gelber Sack: sack body tapering up into a tied, twisted neck —
+        at badge size a merely-rounded blob reads as a plain circle, so the
+        neck is deliberately wide/tall enough to survive the downscale, with
+        a diagonal "twist" line through it rather than a plain rectangle."""
+        neck_w = size * 0.34
+        neck_h = size * 0.34
+        neck_top = y
+        neck_bottom = y + neck_h
+        neck_cx = x + size / 2
+        draw.line(
+            [(neck_cx - neck_w / 2, neck_top), (neck_cx + neck_w / 2, neck_bottom)],
+            fill=INK, width=2,
+        )
+        draw.line(
+            [(neck_cx + neck_w / 2, neck_top), (neck_cx - neck_w / 2, neck_bottom)],
+            fill=INK, width=2,
+        )
+        body = [
+            (neck_cx - neck_w * 0.35, y + neck_h * 0.75),
+            (neck_cx + neck_w * 0.35, y + neck_h * 0.75),
+            (x + size * 0.92, y + size * 0.62),
+            (x + size * 0.78, y + size),
+            (x + size * 0.22, y + size),
+            (x + size * 0.08, y + size * 0.62),
+        ]
+        draw.polygon(body, outline=INK, width=2)
 
     @staticmethod
     def _trash_day_label(d: date, today: date) -> str:
